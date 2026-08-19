@@ -84,6 +84,8 @@ var _ = Describe("Consts", func() {
 				consts.AttributeLinkType,
 				consts.AttributeRDMACapable,
 				consts.AttributeNUMANode,
+				consts.AttributeDeviceType,
+				consts.AttributeNumVFs,
 			}
 
 			Expect(consts.ReservedAttributes).To(HaveLen(len(expectedReserved)))
