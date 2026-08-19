@@ -132,4 +132,4 @@ jobs:
 
   # The upstream functional-tests job ran on a self-hosted [sriov] runner
   # with real SR-IOV hardware, which this fork does not have. Hardware
-  # coverage is provided by the Virtual E2E workflow instead.
+  # coverage is provided by the manually-triggered Virtual E2E workflow.
