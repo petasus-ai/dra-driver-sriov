@@ -55,8 +55,8 @@ PLURAL_EXCEPTIONS += ResourceSelector:ResourceSelectors
 CURPATH=$(PWD)
 BIN_DIR=$(CURPATH)/bin
 
-# Default to GitHub Container Registry
+# Default to the edgestack Quay registry
 ifeq ($(IMAGE_NAME),)
-REGISTRY ?= ghcr.io/k8snetworkplumbingwg/$(DRIVER_NAME)
+REGISTRY ?= quay.io/edgestack/$(DRIVER_NAME)
 IMAGE_NAME = $(REGISTRY)
 endif

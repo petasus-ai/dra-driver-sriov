@@ -387,8 +387,8 @@ ${root}/bin/helm upgrade -i dra-driver-sriov deployments/helm/dra-driver-sriov/ 
 # Wait for the daemonset to be fully deployed
 echo "## Waiting for daemonset to be ready..."
 while true; do
-    DESIRED=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-dra-driver-sriov-chart-kubeletplugin -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
-    READY=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-dra-driver-sriov-chart-kubeletplugin -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+    DESIRED=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-kubeletplugin -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+    READY=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-kubeletplugin -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
     
     if [ "$DESIRED" != "" ] && [ "$DESIRED" != "0" ] && [ "$DESIRED" = "$READY" ]; then
         echo "## Daemonset is ready ($READY/$DESIRED)"

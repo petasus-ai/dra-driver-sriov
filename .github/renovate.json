@@ -1,0 +1,83 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "timezone": "Asia/Seoul",
+  "labels": ["dependencies"],
+  "osvVulnerabilityAlerts": true,
+  "minimumReleaseAge": "3 days",
+  "prCreation": "not-pending",
+  "prConcurrentLimit": 5,
+  "platformAutomerge": true,
+  "packageRules": [
+    {
+      "description": "Automerge minor/patch/digest updates via platform auto-merge. pinDigest is a separate update type from digest — it is the one-off that replaces a tag with the commit it currently points at — so it has to be listed or the pinning PRs config:best-practices opens sit unmerged.",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "description": "Major updates require manual review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Group all GitHub Actions updates into one PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions dependencies"
+    },
+    {
+      "description": "Disable digest pinning for all Dockerfile base images — rebuild noise outweighs the benefit",
+      "matchManagers": ["dockerfile"],
+      "pinDigests": false
+    },
+    {
+      "description": "The Kubernetes staging modules move as a set — a client-go that disagrees with apimachinery does not build — so they share one PR. Minor bumps can move the resource.k8s.io API surface the driver publishes against, so they wait for review; patches automerge.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "k8s.io/api",
+        "k8s.io/apimachinery",
+        "k8s.io/apiserver",
+        "k8s.io/client-go",
+        "k8s.io/component-base",
+        "k8s.io/cri-api",
+        "k8s.io/dynamic-resource-allocation",
+        "k8s.io/kubelet",
+        "k8s.io/kubernetes"
+      ],
+      "groupName": "kubernetes staging modules"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "k8s.io/api",
+        "k8s.io/apimachinery",
+        "k8s.io/apiserver",
+        "k8s.io/client-go",
+        "k8s.io/component-base",
+        "k8s.io/cri-api",
+        "k8s.io/dynamic-resource-allocation",
+        "k8s.io/kubelet",
+        "k8s.io/kubernetes"
+      ],
+      "matchUpdateTypes": ["major", "minor"],
+      "automerge": false
+    },
+    {
+      "description": "The Go toolchain in go.mod and the golang image in the Dockerfile move together, or the image builds with a toolchain the module does not declare.",
+      "matchManagers": ["gomod", "dockerfile"],
+      "matchPackageNames": ["go", "golang"],
+      "groupName": "go toolchain"
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "The Helm version azure/setup-helm installs. It is a tool version rather than a dependency, so the github-actions manager cannot see it.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "azure/setup-helm@[^\\n]*\\n(?:[^\\n]*\\n)*?\\s*version:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "helm/helm"
+    }
+  ]
+}

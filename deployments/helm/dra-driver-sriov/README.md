@@ -37,33 +37,23 @@ For additional information and methods for installing Helm, refer to the officia
 
 ### Deploy DRA Driver for SR-IOV
 
-#### Deploy from OCI repo
+#### Deploy from the shared chart repository
 
-Install the latest stable release (recommended for production):
-```bash
-helm install -n dra-driver-sriov --create-namespace dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart
-```
+The Helm workflow packages this chart and commits the `.tgz` to
+`petasus-ai/edgestack-helm`, the same way the org's other charts are
+published. Install from a checkout of that repository:
 
-Install a specific stable version:
 ```bash
-helm install -n dra-driver-sriov --create-namespace --version 1.0.0 dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart
-```
-
-Install the latest from main branch (for testing):
-```bash
-helm install -n dra-driver-sriov --create-namespace --version 0.0.0-latest dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart
-```
-
-Install a specific commit from main branch:
-```bash
-helm install -n dra-driver-sriov --create-namespace --version 0.0.0-a1b2c3d dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart
+git clone https://github.com/petasus-ai/edgestack-helm.git
+helm install -n dra-driver-sriov --create-namespace dra-driver-sriov \
+  edgestack-helm/dra-driver-sriov-0.1.0.tgz
 ```
 
 #### Deploy from project sources
 
 ```bash
 # Clone project
-git clone https://github.com/k8snetworkplumbingwg/dra-driver-sriov.git
+git clone https://github.com/petasus-ai/dra-driver-sriov.git
 cd dra-driver-sriov
 
 # Install Driver
@@ -80,13 +70,12 @@ kubectl label ns dra-driver-sriov pod-security.kubernetes.io/enforce=privileged
 
 ### Chart Versioning
 
-The Helm chart follows this versioning scheme:
-
-| Chart Version | Container Image Tag | Use Case |
-|---------------|-------------------|----------|
-| `1.0.0`, `1.1.0`, etc. | `v1.0.0`, `v1.1.0` | Stable releases (production) |
-| `0.0.0-latest` | `latest` | Latest from main branch (testing) |
-| `0.0.0-a1b2c3d` | `a1b2c3d` | Specific commit from main (reproducible testing) |
+The chart version is maintained by hand in `Chart.yaml` (`0.1.0` today) and
+names the published `.tgz`. The `appVersion` — which the DaemonSet's image
+tag defaults to — is stamped at package time by the Helm workflow: the 7-char
+short SHA for main-branch publishes, or the tag name for `v*` release tags,
+matching the tags the release workflow pushes to
+`quay.io/edgestack/dra-driver-sriov`.
 
 ### Uninstall
 
@@ -114,7 +103,7 @@ the following chart parameters are available.
 
 | Name | Type | Default | Description |
 | ---- | ---- | ------- | ----------- |
-| `image.repository` | string | `ghcr.io/k8snetworkplumbingwg/dra-driver-sriov` | Container image repository |
+| `image.repository` | string | `quay.io/edgestack/dra-driver-sriov` | Container image repository |
 | `image.pullPolicy` | string | `Always` | Image pull policy |
 | `image.tag` | string | `""` | Image tag (defaults to chart appVersion) |
 
@@ -167,7 +156,7 @@ Limitation for `MULTUS` mode: The runtime DRA device metadata update path is not
 ### Minimal Installation
 
 ```bash
-helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart \
+helm install dra-driver-sriov edgestack-helm/dra-driver-sriov-0.1.0.tgz \
   -n dra-driver-sriov --create-namespace
 ```
 
@@ -176,7 +165,7 @@ helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-srio
 Deploy the kubelet plugin only on nodes with SR-IOV hardware:
 
 ```bash
-helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart \
+helm install dra-driver-sriov edgestack-helm/dra-driver-sriov-0.1.0.tgz \
   -n dra-driver-sriov --create-namespace \
   --set kubeletPlugin.nodeSelector."feature\.node\.kubernetes\.io/network-sriov\.capable"="true"
 ```
@@ -184,7 +173,7 @@ helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-srio
 ### Installation with Increased Logging
 
 ```bash
-helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart \
+helm install dra-driver-sriov edgestack-helm/dra-driver-sriov-0.1.0.tgz \
   -n dra-driver-sriov --create-namespace \
   --set logging.level=5 \
   --set logging.format=json
@@ -193,7 +182,7 @@ helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-srio
 ### Installation with Resource Limits
 
 ```bash
-helm install dra-driver-sriov oci://ghcr.io/k8snetworkplumbingwg/dra-driver-sriov-chart \
+helm install dra-driver-sriov edgestack-helm/dra-driver-sriov-0.1.0.tgz \
   -n dra-driver-sriov --create-namespace \
   --set kubeletPlugin.containers.plugin.resources.requests.cpu=100m \
   --set kubeletPlugin.containers.plugin.resources.requests.memory=128Mi \

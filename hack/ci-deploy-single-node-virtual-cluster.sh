@@ -354,8 +354,8 @@ echo "## Waiting for daemonset to be ready..."
 DS_ATTEMPTS=0
 DS_MAX_ATTEMPTS=60
 while [ $DS_ATTEMPTS -lt $DS_MAX_ATTEMPTS ]; do
-    DESIRED=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-dra-driver-sriov-chart-kubeletplugin -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
-    READY=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-dra-driver-sriov-chart-kubeletplugin -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+    DESIRED=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-kubeletplugin -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+    READY=$(kubectl -n dra-driver-sriov get ds/dra-driver-sriov-kubeletplugin -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
 
     if [ "$DESIRED" != "" ] && [ "$DESIRED" != "0" ] && [ "$DESIRED" = "$READY" ]; then
         echo "## Daemonset is ready ($READY/$DESIRED)"
@@ -414,11 +414,11 @@ systemctl status create-sriov-vfs.service --no-pager 2>&1 | head -10 || true
 VERIFY_EOF
 
 echo "## restart DRA driver pod so it discovers newly created VFs"
-kubectl -n dra-driver-sriov delete pod -l app.kubernetes.io/name=dra-driver-sriov-chart --force --grace-period=0 || true
+kubectl -n dra-driver-sriov delete pod -l app.kubernetes.io/name=dra-driver-sriov --force --grace-period=0 || true
 
 echo "## wait for DRA driver pod to be ready again"
 sleep 10
-kubectl -n dra-driver-sriov wait --for=condition=ready pod -l app.kubernetes.io/name=dra-driver-sriov-chart --timeout=120s
+kubectl -n dra-driver-sriov wait --for=condition=ready pod -l app.kubernetes.io/name=dra-driver-sriov --timeout=120s
 
 echo "## wait for ResourceSlices to be populated with devices"
 ATTEMPTS=0

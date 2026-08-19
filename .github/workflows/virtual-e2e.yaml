@@ -128,7 +128,7 @@ jobs:
           echo "=== All pods ==="
           sudo kubectl --kubeconfig=$KCONF get pods -A || true
           echo "=== DRA driver logs ==="
-          sudo kubectl --kubeconfig=$KCONF -n dra-driver-sriov logs -l app.kubernetes.io/name=dra-driver-sriov-chart --tail=200 || true
+          sudo kubectl --kubeconfig=$KCONF -n dra-driver-sriov logs -l app.kubernetes.io/name=dra-driver-sriov --tail=200 || true
           echo "=== SriovResourcePolicy ==="
           sudo kubectl --kubeconfig=$KCONF -n dra-driver-sriov get sriovresourcepolicies -o yaml || true
           echo "=== ResourceSlices ==="

@@ -1,52 +1,123 @@
-name: "Push helm chart"
+name: Helm
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
+# Packages the chart and commits the .tgz to the shared chart repository,
+# following the same pattern as the org's other charts (dra-driver-xpu,
+# petasus-resource-manager, edgetron-crd-helm).
+#
+# Only a change under deployments/helm re-publishes, so a code-only commit
+# leaves the published chart alone.
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - v*
+    branches: [main]
+    paths:
+      - 'deployments/helm/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CHART_DIR: deployments/helm/dra-driver-sriov
+  HELM_REPO: petasus-ai/edgestack-helm
+  HELM_REPO_BRANCH: master
 
 jobs:
-  package-and-push-helm-chart:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
+  publish:
+    runs-on: ubuntu-latest
     steps:
-      - name: Check out the repo
+      - name: Chart Checkout
         uses: actions/checkout@v7
+        with:
+          path: workspace
+          fetch-depth: 0
 
-      - name: Set version info
-        id: vars
+      - name: Helm Installation
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.2.4
+
+      # A broken chart in the shared repository breaks every consumer of it,
+      # and nothing else stands between this job and that repository.
+      - name: Lint the chart
         run: |
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            # For tags, use the tag name (e.g., v1.2.3)
-            echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          helm lint "workspace/${CHART_DIR}"
+          # --kube-version because the chart declares kubeVersion: >=1.34.0-0
+          # and helm's default template capabilities may be older.
+          helm template dra-driver-sriov "workspace/${CHART_DIR}" \
+            --namespace dra-driver-sriov --kube-version 1.34.0 >/dev/null
+
+      - name: Helm Repository Checkout
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.HELM_REPO }}
+          token: ${{ secrets.MY_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+          ref: ${{ env.HELM_REPO_BRANCH }}
+          path: edgestack-helm
+
+      - name: Helm Package
+        id: package
+        run: |
+          set -euo pipefail
+
+          # The chart's appVersion decides which image tag the DaemonSet pulls
+          # (`image.tag | default .Chart.AppVersion`). The release workflow
+          # tags main-branch images with the 7-char short SHA (and release
+          # tags with the tag name), so stamping the same value here ties the
+          # published chart to an image that exists for this commit.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            app_version="${GITHUB_REF_NAME}"
           else
-            # For main branch, use short SHA
-            echo "version=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
+            app_version="$(git -C workspace rev-parse --short=7 HEAD)"
           fi
 
-      - name: Install helm
-        uses: azure/setup-helm@v5.0.1
-        with:
-          version: latest
-      
-      - name: Update chart
-        env:
-          VERSION: ${{ steps.vars.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
-        run: make chart-prepare
-    
-      - name: Push chart
-        env:
-          VERSION: ${{ steps.vars.outputs.version }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
-        run: make chart-push
+          # The package name follows the chart's version, so deriving it from
+          # helm's own output survives a Chart.yaml version bump; hard-coding
+          # it would silently commit the wrong file.
+          package_path="$(
+            helm package "workspace/${CHART_DIR}" \
+              --app-version "${app_version}" \
+              --destination edgestack-helm \
+            | sed -n 's/.*saved it to: //p'
+          )"
+          package_name="$(basename "${package_path}")"
 
+          echo "appVersion=${app_version}" >> "${GITHUB_OUTPUT}"
+          echo "name=${package_name}" >> "${GITHUB_OUTPUT}"
+
+          echo "Packaged ${package_name} with appVersion ${app_version}"
+          helm show chart "${package_path}"
+
+      - name: Helm Push
+        env:
+          GITHUB_TOKEN: ${{ secrets.MY_TOKEN }}
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          APP_VERSION: ${{ steps.package.outputs.appVersion }}
+        run: |
+          set -euo pipefail
+
+          git config --global user.email "opensonaproject@gmail.com"
+          git config --global user.name "edgestack-bot"
+
+          cd edgestack-helm
+
+          # Replacing an already published version changes what a consumer
+          # gets from a name they have already pulled. That is the existing
+          # convention here, so it is allowed — but it is said out loud rather
+          # than happening quietly.
+          if git cat-file -e "HEAD:${PACKAGE_NAME}" 2>/dev/null; then
+            echo "::warning::${PACKAGE_NAME} is already published and is being replaced." \
+                 "Bump version: in ${CHART_DIR}/Chart.yaml to publish alongside it instead."
+          fi
+
+          git add "${PACKAGE_NAME}"
+          if git diff --cached --quiet; then
+            echo "${PACKAGE_NAME} is byte-identical to what is published; nothing to do."
+            exit 0
+          fi
+
+          git commit -m "${PACKAGE_NAME} (appVersion ${APP_VERSION})"
+          git push origin "${HELM_REPO_BRANCH}"
+          echo "Pushed ${PACKAGE_NAME} to ${HELM_REPO}@${HELM_REPO_BRANCH}"

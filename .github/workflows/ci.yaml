@@ -126,14 +126,6 @@ jobs:
           cd deployments/container
           make centos9
 
-  functional-tests:
-    name: Functional Tests
-    runs-on: [sriov]
-    needs: [build-container, test, lint, generate-and-format]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-      
-      - name: Create cluster
-        run: |
-          make e2e-tests
+  # The upstream functional-tests job ran on a self-hosted [sriov] runner
+  # with real SR-IOV hardware, which this fork does not have. Hardware
+  # coverage is provided by the Virtual E2E workflow instead.

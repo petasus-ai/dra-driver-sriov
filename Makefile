@@ -93,14 +93,6 @@ lint: $(GOLANGCI_LINT)
 $(GOLANGCI_LINT):
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION))
 
-YQ_VERSION ?= v4.50.1
-YQ = $(BIN_DIR)/yq
-$(YQ):
-	@echo "Downloading yq $(YQ_VERSION)"
-	@mkdir -p $(BIN_DIR)
-	@curl -sSfL https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_linux_amd64 -o $(YQ)
-	@chmod +x $(YQ)
-
 vet:
 	go vet $(MODULE)/...
 
@@ -223,14 +215,12 @@ $(BIN_DIR)/helm helm:
 	chmod 700 $(BIN_DIR)/get_helm.sh
 	HELM_INSTALL_DIR=$(BIN_DIR) $(BIN_DIR)/get_helm.sh
 
-# Helm chart targets
-.PHONY: chart-prepare
-chart-prepare: | $(YQ) ; ## Prepare chart (pass VERSION=v1.0.0 or VERSION=sha)
-	@VERSION=$(VERSION) GITHUB_TOKEN=$(GITHUB_TOKEN) GITHUB_REPO_OWNER=$(GITHUB_REPO_OWNER) hack/release/chart-update.sh
-
-.PHONY: chart-push
-chart-push: ## Push chart (pass VERSION=v1.0.0 or VERSION=sha)
-	@VERSION=$(VERSION) GITHUB_TOKEN=$(GITHUB_TOKEN) GITHUB_REPO_OWNER=$(GITHUB_REPO_OWNER) hack/release/chart-push.sh
+# Helm chart packaging is done by .github/workflows/chart-push.yml, which
+# commits the packaged .tgz to petasus-ai/edgestack-helm. Package locally with:
+#   helm package deployments/helm/dra-driver-sriov
+.PHONY: helm-package
+helm-package:
+	helm package deployments/helm/dra-driver-sriov --destination $(DIST_DIR)
 
 .PHONY: deploy-virtual-k8s-cluster
 deploy-virtual-k8s-cluster:
