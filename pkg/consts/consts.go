@@ -47,6 +47,18 @@ const (
 	AttributeStandardPciAddress = deviceattribute.StandardDeviceAttributePrefix + "pciBusID"
 	// AttributePfPciAddress is for the PCI address of the Physical Function (PF).
 	AttributePfPciAddress = DriverName + "/pfPciAddress"
+	// AttributeDeviceType marks the function type of the device: "vf" or "pf".
+	// Stamped on every discovered device so filters and CEL selectors can
+	// rely on its presence.
+	AttributeDeviceType = DriverName + "/deviceType"
+	// AttributeNumVFs is the number of VFs currently configured on a PF
+	// device. Only present on "pf" entries; used to keep a PF and its VFs
+	// mutually exclusive at advertisement time.
+	AttributeNumVFs = DriverName + "/numVFs"
+
+	// DeviceTypeVF and DeviceTypePF are the values of AttributeDeviceType.
+	DeviceTypeVF = "vf"
+	DeviceTypePF = "pf"
 
 	// this is the most-common nonstandard prefix, supported by dranet and dracpu
 	DraNetCompatPrefix = "dra.net"
@@ -95,6 +107,8 @@ var ReservedAttributes = map[resourceapi.QualifiedName]bool{
 	AttributeLinkType:           true,
 	AttributeRDMACapable:        true,
 	AttributeNUMANode:           true,
+	AttributeDeviceType:         true,
+	AttributeNumVFs:             true,
 }
 
 type ConfigurationMode string

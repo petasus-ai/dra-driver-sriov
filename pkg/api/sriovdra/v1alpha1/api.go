@@ -54,17 +54,41 @@ type Config struct {
 	ResourceFilters          []ResourceFilter      `json:"resourceFilters,omitempty"`
 }
 
+// DeviceType selects the function type a ResourceFilter matches.
+// +kubebuilder:validation:Enum=vf;pf
+type DeviceType string
+
+const (
+	// DeviceTypeVF matches SR-IOV virtual functions (the default).
+	DeviceTypeVF DeviceType = "vf"
+	// DeviceTypePF matches physical functions (whole-NIC passthrough).
+	DeviceTypePF DeviceType = "pf"
+)
+
 // ResourceFilter is a filter for a resource
 type ResourceFilter struct {
-	Vendors        []string `json:"vendors,omitempty"`
-	Devices        []string `json:"devices,omitempty"`
-	PciAddresses   []string `json:"pciAddresses,omitempty"`
-	PfNames        []string `json:"pfNames,omitempty"`
-	PfPciAddresses []string `json:"pfPciAddresses,omitempty"`
-	Drivers        []string `json:"drivers,omitempty"`
+	// DeviceType selects whether this filter matches virtual functions
+	// ("vf", the default) or physical functions ("pf"). PF advertisement
+	// is strictly opt-in: a filter without deviceType never matches a PF.
+	DeviceType     DeviceType `json:"deviceType,omitempty"`
+	Vendors        []string   `json:"vendors,omitempty"`
+	Devices        []string   `json:"devices,omitempty"`
+	PciAddresses   []string   `json:"pciAddresses,omitempty"`
+	PfNames        []string   `json:"pfNames,omitempty"`
+	PfPciAddresses []string   `json:"pfPciAddresses,omitempty"`
+	Drivers        []string   `json:"drivers,omitempty"`
 	// +kubebuilder:validation:Enum=eth;ib;ethernet;infiniband
 	// NIC Link Type. Accepted values: "eth", "ib", "ethernet", "infiniband".
 	LinkType string `json:"linkType,omitempty"`
+}
+
+// NormalizedDeviceType returns the effective device type of the filter:
+// DeviceTypeVF when the field is unset, the (lowercased) value otherwise.
+func (f ResourceFilter) NormalizedDeviceType() DeviceType {
+	if f.DeviceType == "" {
+		return DeviceTypeVF
+	}
+	return DeviceType(strings.ToLower(string(f.DeviceType)))
 }
 
 // +genclient

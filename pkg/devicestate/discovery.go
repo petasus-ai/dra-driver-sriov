@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jaypipes/pcidb"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -67,10 +68,14 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			continue
 		}
 
+		// A PF bound to a non-networking driver (e.g. vfio-pci for whole-PF
+		// passthrough) has no netdev. Keep it as a candidate with an empty
+		// name: it cannot host discoverable VFs but is itself advertisable
+		// through a deviceType: pf filter.
 		pfNetName := host.GetHelpers().TryGetPFInterfaceName(device.Address)
 		if pfNetName == "" {
-			logger.Error(nil, "Unable to get interface name for device, skipping", "address", device.Address)
-			continue
+			logger.V(1).Info("Device has no netdev (non-networking driver?), keeping as PF candidate",
+				"address", device.Address)
 		}
 
 		eswitchMode := host.GetHelpers().GetNicSriovMode(device.Address)
@@ -90,11 +95,15 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			pcieRoot = "" // Leave empty if we can't determine it
 		}
 
-		// Get link type (ethernet, infiniband, etc.)
+		// Get link type (ethernet, infiniband, etc.). GetLinkType resolves
+		// through the netdev, which a vfio-bound PF does not have — fall
+		// back to the PCI subclass in that case (0x00 ethernet, 0x07
+		// infiniband).
 		linkType, err := host.GetHelpers().GetLinkType(device.Address)
 		if err != nil {
-			logger.Error(err, "Failed to get link type", "address", device.Address)
-			linkType = consts.LinkTypeUnknown // Default to unknown if we can't determine it
+			linkType = linkTypeFromPCISubclass(device.Subclass)
+			logger.V(1).Info("Falling back to PCI subclass for link type",
+				"address", device.Address, "linkType", linkType, "getLinkTypeErr", err)
 		}
 
 		logger.Info("Found SR-IOV PF device",
@@ -144,6 +153,13 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 		}
 		numaNodeIntPtr := ptr.To(numaNodeInt)
 
+		// The PF is itself a potential device (whole-NIC passthrough).
+		// Advertisement stays opt-in (deviceType: pf filter) and is gated on
+		// the PF having no VFs, but the entry is always discovered so the
+		// controller can evaluate it.
+		pfDevice := buildPFDevice(pfInfo, len(vfList), numaNodeIntPtr)
+		resourceList[pfDevice.Name] = pfDevice
+
 		for _, vfInfo := range vfList {
 			deviceName := strings.ReplaceAll(vfInfo.PciAddress, ":", "-")
 			deviceName = strings.ReplaceAll(deviceName, ".", "-")
@@ -177,8 +193,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 				consts.AttributeMultusDeviceID: {
 					StringValue: ptr.To(vfInfo.PciAddress),
 				},
-				consts.AttributePFName: {
-					StringValue: ptr.To(pfInfo.NetName),
+				consts.AttributeDeviceType: {
+					StringValue: ptr.To(consts.DeviceTypeVF),
 				},
 				consts.AttributeEswitchMode: {
 					StringValue: ptr.To(pfInfo.EswitchMode),
@@ -209,6 +225,12 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 					IntValue: numaNodeIntPtr,
 				},
 			}
+			// A netdev-less PF (vfio-bound) has no name to report.
+			if pfInfo.NetName != "" {
+				attributes[consts.AttributePFName] = resourceapi.DeviceAttribute{
+					StringValue: ptr.To(pfInfo.NetName),
+				}
+			}
 
 			resourceList[deviceName] = resourceapi.Device{
 				Name:       deviceName,
@@ -219,4 +241,87 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 
 	logger.Info("SR-IOV device discovery completed", "totalDevices", len(resourceList))
 	return resourceList, nil
+}
+
+// buildPFDevice builds the allocatable device entry for a PF candidate. The
+// attribute layout mirrors the VF entries with self-referential parent
+// fields; vfID is omitted (no meaningful value) and PFName is omitted for
+// netdev-less PFs.
+func buildPFDevice(pfInfo PFInfo, numVFs int, numaNode *int64) resourceapi.Device {
+	deviceName := strings.ReplaceAll(pfInfo.Address, ":", "-")
+	deviceName = strings.ReplaceAll(deviceName, ".", "-")
+
+	rdmaCapable := host.GetHelpers().VerifyRDMACapability(pfInfo.Address)
+
+	attributes := map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+		consts.AttributeVendorID: {
+			StringValue: ptr.To(pfInfo.VendorID),
+		},
+		consts.AttributeDeviceID: {
+			StringValue: ptr.To(pfInfo.DeviceID),
+		},
+		consts.AttributePFDeviceID: {
+			StringValue: ptr.To(pfInfo.DeviceID),
+		},
+		consts.AttributePciAddress: {
+			StringValue: ptr.To(pfInfo.Address),
+		},
+		consts.AttributeMultusDeviceID: {
+			StringValue: ptr.To(pfInfo.Address),
+		},
+		consts.AttributeDeviceType: {
+			StringValue: ptr.To(consts.DeviceTypePF),
+		},
+		consts.AttributeNumVFs: {
+			IntValue: ptr.To(int64(numVFs)),
+		},
+		consts.AttributeEswitchMode: {
+			StringValue: ptr.To(pfInfo.EswitchMode),
+		},
+		consts.AttributePCIeRoot: {
+			StringValue: ptr.To(pfInfo.PCIeRoot),
+		},
+		consts.AttributePfPciAddress: {
+			StringValue: ptr.To(pfInfo.Address),
+		},
+		consts.AttributeStandardPciAddress: {
+			StringValue: ptr.To(pfInfo.Address),
+		},
+		consts.AttributeLinkType: {
+			StringValue: ptr.To(pfInfo.LinkType),
+		},
+		consts.AttributeRDMACapable: {
+			BoolValue: ptr.To(rdmaCapable),
+		},
+		consts.AttributeNUMANode: {
+			IntValue: numaNode,
+		},
+	}
+	if pfInfo.NetName != "" {
+		attributes[consts.AttributePFName] = resourceapi.DeviceAttribute{
+			StringValue: ptr.To(pfInfo.NetName),
+		}
+	}
+
+	return resourceapi.Device{
+		Name:       deviceName,
+		Attributes: attributes,
+	}
+}
+
+// linkTypeFromPCISubclass maps a PCI network-controller subclass to a link
+// type, for devices whose netdev-based link type cannot be read (e.g. a PF
+// bound to vfio-pci).
+func linkTypeFromPCISubclass(subclass *pcidb.Subclass) string {
+	if subclass == nil {
+		return consts.LinkTypeUnknown
+	}
+	switch subclass.ID {
+	case "00":
+		return consts.LinkTypeEthernet
+	case "07":
+		return consts.LinkTypeInfiniband
+	default:
+		return consts.LinkTypeUnknown
+	}
 }

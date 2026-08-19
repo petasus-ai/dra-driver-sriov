@@ -294,3 +294,105 @@ var _ = Describe("getPolicyDeviceMap", func() {
 		Expect(*m["devA"][resourceapi.QualifiedName("sriovnetwork.k8snetworkplumbingwg.io/resourceName")].StringValue).To(Equal("my-resource"))
 	})
 })
+
+var _ = Describe("deviceType filtering", func() {
+	var r *SriovResourcePolicyReconciler
+
+	BeforeEach(func() {
+		r = &SriovResourcePolicyReconciler{}
+	})
+
+	vendor := "15b3"
+	pfType := sriovconsts.DeviceTypePF
+	vfType := sriovconsts.DeviceTypeVF
+
+	makePF := func(numVFs int64) resourceapi.Device {
+		n := numVFs
+		return resourceapi.Device{
+			Name: "pf-dev",
+			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+				sriovconsts.AttributeVendorID:   {StringValue: &vendor},
+				sriovconsts.AttributeDeviceType: {StringValue: &pfType},
+				sriovconsts.AttributeNumVFs:     {IntValue: &n},
+			},
+		}
+	}
+	makeVF := func() resourceapi.Device {
+		return resourceapi.Device{
+			Name: "vf-dev",
+			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+				sriovconsts.AttributeVendorID:   {StringValue: &vendor},
+				sriovconsts.AttributeDeviceType: {StringValue: &vfType},
+			},
+		}
+	}
+
+	It("default filters never match a PF", func() {
+		Expect(r.deviceMatchesFilter(makePF(0), sriovdrav1alpha1.ResourceFilter{})).To(BeFalse())
+		Expect(r.deviceMatchesFilter(makePF(0), sriovdrav1alpha1.ResourceFilter{Vendors: []string{"15b3"}})).To(BeFalse())
+	})
+
+	It("deviceType: pf filters never match a VF", func() {
+		Expect(r.deviceMatchesFilter(makeVF(), sriovdrav1alpha1.ResourceFilter{DeviceType: sriovdrav1alpha1.DeviceTypePF})).To(BeFalse())
+	})
+
+	It("deviceType: pf filters match a PF, combined with other keys", func() {
+		Expect(r.deviceMatchesFilter(makePF(0), sriovdrav1alpha1.ResourceFilter{DeviceType: sriovdrav1alpha1.DeviceTypePF})).To(BeTrue())
+		Expect(r.deviceMatchesFilter(makePF(0), sriovdrav1alpha1.ResourceFilter{
+			DeviceType: sriovdrav1alpha1.DeviceTypePF,
+			Vendors:    []string{"15b3"},
+		})).To(BeTrue())
+		Expect(r.deviceMatchesFilter(makePF(0), sriovdrav1alpha1.ResourceFilter{
+			DeviceType: sriovdrav1alpha1.DeviceTypePF,
+			Vendors:    []string{"8086"},
+		})).To(BeFalse())
+	})
+
+	It("explicit deviceType: vf matches VFs, including devices without the attribute", func() {
+		Expect(r.deviceMatchesFilter(makeVF(), sriovdrav1alpha1.ResourceFilter{DeviceType: sriovdrav1alpha1.DeviceTypeVF})).To(BeTrue())
+		legacy := resourceapi.Device{
+			Name: "legacy-dev",
+			Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+				sriovconsts.AttributeVendorID: {StringValue: &vendor},
+			},
+		}
+		Expect(r.deviceMatchesFilter(legacy, sriovdrav1alpha1.ResourceFilter{DeviceType: sriovdrav1alpha1.DeviceTypeVF})).To(BeTrue())
+		Expect(r.deviceMatchesFilter(legacy, sriovdrav1alpha1.ResourceFilter{})).To(BeTrue())
+	})
+
+	It("empty filters list matches VFs only", func() {
+		Expect(r.deviceMatchesFilters(makeVF(), nil)).To(BeTrue())
+		Expect(r.deviceMatchesFilters(makePF(0), nil)).To(BeFalse())
+	})
+
+	It("getPolicyDeviceMap advertises a matched PF only when it has no VFs", func() {
+		alloc := drasriovtypes.AllocatableDevices{
+			"pf-free": makePF(0),
+			"pf-busy": makePF(4),
+			"vf":      makeVF(),
+		}
+		// Distinct names per map key (makePF always names "pf-dev")
+		for name, d := range alloc {
+			d.Name = name
+			alloc[name] = d
+		}
+		r := &SriovResourcePolicyReconciler{deviceStateManager: &localFakeState{alloc: alloc}}
+
+		policies := []*sriovdrav1alpha1.SriovResourcePolicy{{
+			ObjectMeta: metav1.ObjectMeta{Name: "p1"},
+			Spec: sriovdrav1alpha1.SriovResourcePolicySpec{
+				Configs: []sriovdrav1alpha1.Config{{
+					ResourceFilters: []sriovdrav1alpha1.ResourceFilter{{
+						DeviceType: sriovdrav1alpha1.DeviceTypePF,
+						Vendors:    []string{"15b3"},
+					}},
+				}},
+			},
+		}}
+
+		m := r.getPolicyDeviceMap(policies, nil)
+		Expect(m).To(HaveKey("pf-free"))
+		Expect(m).NotTo(HaveKey("pf-busy")) // has VFs configured
+		Expect(m).NotTo(HaveKey("vf"))      // pf filter does not match VFs
+	})
+})

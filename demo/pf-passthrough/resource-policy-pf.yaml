@@ -1,0 +1,68 @@
+# Advertise whole physical functions (PFs) for full-NIC passthrough.
+#
+# PF advertisement is strictly opt-in: only a resourceFilter carrying
+# `deviceType: pf` can match a PF, and a PF with VFs configured
+# (sriov_numvfs > 0) is never advertised. Scope PF filters narrowly
+# (pciAddresses / pfNames) so a host uplink cannot be matched by accident.
+#
+# The example targets InfiniBand HCAs bound to vfio-pci and consumed by
+# KubeVirt VMs through Multus (driver in MULTUS mode): the DeviceAttributes
+# object supplies the k8s.cni.cncf.io/resourceName Multus keys on.
+apiVersion: sriovnetwork.k8snetworkplumbingwg.io/v1alpha1
+kind: DeviceAttributes
+metadata:
+  name: ib-pf-attrs
+  namespace: dra-driver-sriov
+  labels:
+    pool: ib-pf
+spec:
+  attributes:
+    sriovnetwork.k8snetworkplumbingwg.io/resourceName:
+      string: "ib_pf_resource"
+    k8s.cni.cncf.io/resourceName:
+      string: "petasus.io/ib_pf_resource"
+---
+apiVersion: sriovnetwork.k8snetworkplumbingwg.io/v1alpha1
+kind: SriovResourcePolicy
+metadata:
+  name: ib-pf-passthrough
+  namespace: dra-driver-sriov
+spec:
+  configs:
+  - deviceAttributesSelector:
+      matchLabels:
+        pool: ib-pf
+    resourceFilters:
+    - deviceType: pf
+      linkType: infiniband
+      pciAddresses: ["0000:19:00.0", "0000:19:00.1"]
+---
+# A claim template for one whole PF. The vfio-pci driver entry is what makes
+# the driver emit the /dev/vfio/* device nodes (a no-op rebind when the PF is
+# already vfio-bound).
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  namespace: default
+  name: single-ib-pf
+spec:
+  spec:
+    devices:
+      requests:
+      - name: pf
+        exactly:
+          deviceClassName: sriovnetwork.k8snetworkplumbingwg.io
+          count: 1
+          selectors:
+          - cel:
+              expression: >-
+                device.attributes["sriovnetwork.k8snetworkplumbingwg.io"].deviceType == "pf" &&
+                device.attributes["sriovnetwork.k8snetworkplumbingwg.io"].resourceName == "ib_pf_resource"
+      config:
+      - requests: ["pf"]
+        opaque:
+          driver: sriovnetwork.k8snetworkplumbingwg.io
+          parameters:
+            apiVersion: sriovnetwork.k8snetworkplumbingwg.io/v1alpha1
+            kind: VfConfig
+            driver: vfio-pci

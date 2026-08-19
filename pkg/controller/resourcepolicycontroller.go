@@ -148,6 +148,18 @@ func (r *SriovResourcePolicyReconciler) getPolicyDeviceMap(
 				}
 
 				if r.deviceMatchesFilters(device, config.ResourceFilters) {
+					// A PF with configured VFs must never be allocatable at
+					// the same time as its VFs: refuse to advertise it even
+					// though a deviceType: pf filter matches.
+					if deviceTypeOf(device) == consts.DeviceTypePF {
+						if numVFs := deviceNumVFs(device); numVFs > 0 {
+							r.log.Info("Warning: PF matches a deviceType: pf filter but has VFs configured; not advertising it",
+								"deviceName", deviceName,
+								"policyName", policy.Name,
+								"numVFs", numVFs)
+							continue
+						}
+					}
 					attrs := make(map[resourceapi.QualifiedName]resourceapi.DeviceAttribute, len(resolvedAttrs))
 					for k, v := range resolvedAttrs {
 						attrs[k] = v
@@ -246,10 +258,11 @@ func nodeSelectorTermToLabelSelector(term corev1.NodeSelectorTerm) *metav1.Label
 }
 
 // deviceMatchesFilters checks if a device matches any of the provided resource filters.
-// Empty filters list matches all devices.
+// An empty filters list matches all VF devices; PF advertisement always
+// requires a filter that opts in with deviceType: pf.
 func (r *SriovResourcePolicyReconciler) deviceMatchesFilters(device resourceapi.Device, filters []sriovdrav1alpha1.ResourceFilter) bool {
 	if len(filters) == 0 {
-		return true
+		return deviceTypeOf(device) == consts.DeviceTypeVF
 	}
 
 	for _, filter := range filters {
@@ -261,8 +274,32 @@ func (r *SriovResourcePolicyReconciler) deviceMatchesFilters(device resourceapi.
 	return false
 }
 
+// deviceTypeOf returns the device's function type ("vf" or "pf"). Devices
+// without the attribute (not produced by current discovery) count as VFs.
+func deviceTypeOf(device resourceapi.Device) string {
+	attr, exists := device.Attributes[consts.AttributeDeviceType]
+	if !exists || attr.StringValue == nil {
+		return consts.DeviceTypeVF
+	}
+	return *attr.StringValue
+}
+
+// deviceNumVFs returns the number of VFs configured on a PF device entry, or
+// 0 when the attribute is absent.
+func deviceNumVFs(device resourceapi.Device) int64 {
+	attr, exists := device.Attributes[consts.AttributeNumVFs]
+	if !exists || attr.IntValue == nil {
+		return 0
+	}
+	return *attr.IntValue
+}
+
 // deviceMatchesFilter checks if a device matches a specific resource filter
 func (r *SriovResourcePolicyReconciler) deviceMatchesFilter(device resourceapi.Device, filter sriovdrav1alpha1.ResourceFilter) bool {
+	if string(filter.NormalizedDeviceType()) != deviceTypeOf(device) {
+		return false
+	}
+
 	if len(filter.Vendors) > 0 {
 		vendorAttr, exists := device.Attributes[consts.AttributeVendorID]
 		if !exists || vendorAttr.StringValue == nil {

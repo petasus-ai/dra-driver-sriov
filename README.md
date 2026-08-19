@@ -201,7 +201,7 @@ spec:
   - {}
 ```
 
-An empty `resourceFilters` list matches every device, and omitting `nodeSelector` matches every node. This is useful for initial testing before defining more targeted policies.
+An empty `resourceFilters` list matches every VF device, and omitting `nodeSelector` matches every node. This is useful for initial testing before defining more targeted policies. Physical functions are never matched implicitly — see [Advertising physical functions](#advertising-physical-functions-pfs) below.
 
 ### SriovResourcePolicy CRD
 
@@ -264,6 +264,43 @@ spec:
 ```
 
 Each `Config` entry pairs a `deviceAttributesSelector` (label selector matching `DeviceAttributes` objects) with `resourceFilters` (device hardware criteria). Devices matching the filters are advertised, and attributes from all matching `DeviceAttributes` objects are merged onto them.
+
+### Advertising physical functions (PFs)
+
+By default every filter matches virtual functions only. To advertise a whole
+PF for full-NIC passthrough (the common shape for InfiniBand HCAs consumed by
+virtual machines), a filter must opt in with `deviceType: pf`:
+
+```yaml
+apiVersion: sriovnetwork.k8snetworkplumbingwg.io/v1alpha1
+kind: SriovResourcePolicy
+metadata:
+  name: ib-pf-passthrough
+  namespace: dra-driver-sriov
+spec:
+  configs:
+  - deviceAttributesSelector:
+      matchLabels:
+        pool: ib-pf
+    resourceFilters:
+    - deviceType: pf
+      linkType: infiniband
+      pciAddresses: ["0000:19:00.0", "0000:19:00.1"]
+```
+
+Rules that keep PF advertisement safe:
+
+- A filter without `deviceType` (and an empty `resourceFilters` list) never
+  matches a PF, so host uplinks cannot be swept in accidentally. Scope PF
+  filters narrowly (`pciAddresses` / `pfNames`) rather than by vendor.
+- A PF with VFs configured (`sriov_numvfs > 0`) is never advertised, keeping
+  a PF and its VFs mutually exclusive.
+- PF entries carry `deviceType: "pf"` and `numVFs` attributes, omit `vfID`,
+  and their parent fields (`pfPciAddress`, `pfDeviceID`) reference the PF
+  itself. A PF bound to vfio-pci has no netdev, so `PFName` is omitted and
+  the link type is derived from the PCI subclass.
+
+See [docs/design/pf-advertisement.md](docs/design/pf-advertisement.md) for the full design.
 
 For Multus integration with `resource.k8s.io/v1` (as described in [multus-cni PR #1492](https://github.com/k8snetworkplumbingwg/multus-cni/pull/1492)), each allocated device should include:
 <!-- TODO: Remove this PR reference after multus-cni PR #1492 is merged. -->

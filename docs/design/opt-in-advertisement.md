@@ -8,6 +8,13 @@
 
 This design proposes changing the SR-IOV DRA driver from advertising all discovered devices by default to an explicit opt-in model where devices are only advertised when matching a `SriovResourcePolicy` Custom Resource. A separate `DeviceAttributes` CRD allows attaching arbitrary key/value attributes to matched devices, decoupling device selection from attribute assignment.
 
+> **Note:** This document covers the advertisement model for the devices the
+> driver discovers, which today are SR-IOV Virtual Functions. Extending
+> discovery and advertisement to whole Physical Functions (PF passthrough,
+> e.g. InfiniBand HCAs) is designed separately in
+> [pf-advertisement.md](pf-advertisement.md), which builds on the model
+> described here.
+
 ## Motivation
 
 ### Current Behavior

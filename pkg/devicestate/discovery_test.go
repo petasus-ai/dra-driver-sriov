@@ -78,12 +78,13 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
 			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.2").Return(false)
 
 			devices, err := DiscoverSriovDevices()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(2))
+			Expect(devices).To(HaveLen(3)) // PF entry + 2 VFs
 
 			// Check first VF
 			dev1 := devices["0000-01-00-1"]
@@ -99,6 +100,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev1.Attributes[consts.AttributePfPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.0")))
 			Expect(dev1.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.1")))
 			Expect(dev1.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeEthernet)))
+			Expect(dev1.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypeVF)))
 			// Compatibility attributes
 			Expect(dev1.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 
@@ -107,6 +109,19 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev2.Name).To(Equal("0000-01-00-2"))
 			Expect(dev2.Attributes[consts.AttributeVFID].IntValue).To(Equal(ptr.To(int64(1))))
 			Expect(dev2.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.2")))
+
+			// Check the PF entry: self-referential parent fields, no vfID
+			pf := devices["0000-01-00-0"]
+			Expect(pf.Name).To(Equal("0000-01-00-0"))
+			Expect(pf.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypePF)))
+			Expect(pf.Attributes[consts.AttributeNumVFs].IntValue).To(Equal(ptr.To(int64(2))))
+			Expect(pf.Attributes[consts.AttributeDeviceID].StringValue).To(Equal(ptr.To("1572")))
+			Expect(pf.Attributes[consts.AttributePFDeviceID].StringValue).To(Equal(ptr.To("1572")))
+			Expect(pf.Attributes[consts.AttributePciAddress].StringValue).To(Equal(ptr.To("0000:01:00.0")))
+			Expect(pf.Attributes[consts.AttributePfPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.0")))
+			Expect(pf.Attributes[consts.AttributeMultusDeviceID].StringValue).To(Equal(ptr.To("0000:01:00.0")))
+			Expect(pf.Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
+			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributeVFID))
 		})
 
 		It("should discover multiple PFs with VFs", func() {
@@ -153,13 +168,15 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetLinkType("0000:02:00.0").Return(consts.LinkTypeInfiniband, nil)
 
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList1, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
 			mockHost.EXPECT().GetVFList("0000:02:00.0").Return(vfList2, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:02:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:02:00.1").Return(false)
 
 			devices, err := DiscoverSriovDevices()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(2))
+			Expect(devices).To(HaveLen(4)) // 2 PF entries + 2 VFs
 
 			// Check Intel VF
 			dev1 := devices["0000-01-00-1"]
@@ -208,11 +225,12 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
 			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
 
 			devices, err := DiscoverSriovDevices()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(1))
+			Expect(devices).To(HaveLen(2)) // PF entry + VF
 
 			dev := devices["0000-01-00-1"]
 			Expect(dev.Attributes[consts.AttributePfPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.0")))
@@ -243,19 +261,52 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
 			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return("", fmt.Errorf("lookup failed"))
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
 
 			devices, err := DiscoverSriovDevices()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(1))
+			Expect(devices).To(HaveLen(2)) // PF entry + VF
 
-			// Link type should default to "unknown"
+			// Link type should default to "unknown" (no PCI subclass in this fixture)
 			dev := devices["0000-01-00-1"]
 			Expect(dev.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeUnknown)))
 			// Other attributes should still be set correctly
 			Expect(dev.Attributes[consts.AttributeVendorID].StringValue).To(Equal(ptr.To("8086")))
 			Expect(dev.Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
 			Expect(dev.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.1")))
+		})
+
+		It("should fall back to PCI subclass for link type when netdev lookup fails", func() {
+			pciInfo := &pci.Info{
+				Devices: []*pci.Device{
+					{
+						Address:  "0000:19:00.0",
+						Class:    &pcidb.Class{ID: "02"},
+						Subclass: &pcidb.Subclass{ID: "07"}, // InfiniBand controller
+						Vendor:   &pcidb.Vendor{ID: "15b3"},
+						Product:  &pcidb.Product{ID: "1021"},
+					},
+				},
+			}
+
+			mockHost.EXPECT().PCI().Return(pciInfo, nil)
+			mockHost.EXPECT().IsSriovVF("0000:19:00.0").Return(false)
+			mockHost.EXPECT().TryGetPFInterfaceName("0000:19:00.0").Return("") // vfio-bound, no netdev
+			mockHost.EXPECT().GetNicSriovMode("0000:19:00.0").Return(consts.EswitchModeLegacy)
+			mockHost.EXPECT().GetNumaNode("0000:19:00.0").Return("0", nil)
+			mockHost.EXPECT().GetPCIeRoot("0000:19:00.0").Return("pci0000:16", nil)
+			mockHost.EXPECT().GetLinkType("0000:19:00.0").Return("", fmt.Errorf("no netdev"))
+			mockHost.EXPECT().GetVFList("0000:19:00.0").Return([]host.VFInfo{}, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:19:00.0").Return(false)
+
+			devices, err := DiscoverSriovDevices()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(1))
+
+			pf := devices["0000-19-00-0"]
+			Expect(pf.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeInfiniband)))
+			Expect(pf.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypePF)))
 		})
 
 		Context("RDMA Capability", func() {
@@ -291,6 +342,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 				mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("1", nil)
 				mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
 				mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeInfiniband, nil)
+				mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false) // PF entry
 			})
 
 			It("should discover RDMA-capable VFs with RDMA attributes", func() {
@@ -317,7 +369,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 
 				devices, err := DiscoverSriovDevices()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(devices).To(HaveLen(2))
+				Expect(devices).To(HaveLen(3)) // PF entry + 2 VFs
 
 				// Check first VF (RDMA-capable)
 				dev1 := devices["0000-01-00-1"]
@@ -351,7 +403,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 
 				devices, err := DiscoverSriovDevices()
 				Expect(err).NotTo(HaveOccurred())
-				Expect(devices).To(HaveLen(1))
+				Expect(devices).To(HaveLen(2)) // PF entry + VF
 
 				// Should default to not RDMA capable
 				dev := devices["0000-01-00-1"]
@@ -420,6 +472,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
 			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
 
 			// Second device (VF) - should be skipped
@@ -427,29 +480,40 @@ var _ = Describe("DiscoverSriovDevices", func() {
 
 			devices, err := DiscoverSriovDevices()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(1)) // Only the VF from the PF's list, not the PCI device itself
+			Expect(devices).To(HaveLen(2)) // PF entry + the VF from the PF's list, not the raw VF PCI device
 		})
 
-		It("should skip devices without interface name", func() {
+		It("should keep a netdev-less PF as a PF device without PFName", func() {
 			pciInfo := &pci.Info{
 				Devices: []*pci.Device{
 					{
 						Address: "0000:01:00.0",
 						Class:   &pcidb.Class{ID: "02"},
-						Vendor:  &pcidb.Vendor{ID: "8086"},
-						Product: &pcidb.Product{ID: "1572"},
+						Vendor:  &pcidb.Vendor{ID: "15b3"},
+						Product: &pcidb.Product{ID: "1021"},
 					},
 				},
 			}
 
 			mockHost.EXPECT().PCI().Return(pciInfo, nil)
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
-			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("") // No interface name
+			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("") // vfio-bound: no netdev
+			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
+			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
+			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
+			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return("", fmt.Errorf("no netdev"))
+			mockHost.EXPECT().GetVFList("0000:01:00.0").Return([]host.VFInfo{}, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 
 			devices, err := DiscoverSriovDevices()
-			// Device is skipped, returns successfully with empty list
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(0))
+			Expect(devices).To(HaveLen(1))
+
+			pf := devices["0000-01-00-0"]
+			Expect(pf.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypePF)))
+			Expect(pf.Attributes[consts.AttributeNumVFs].IntValue).To(Equal(ptr.To(int64(0))))
+			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributePFName))
+			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributeVFID))
 		})
 
 		It("should skip devices with invalid class ID", func() {
@@ -550,6 +614,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
 			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 			mockHost.EXPECT().VerifyRDMACapability("0000:af:10.7").Return(false)
 
 			devices, err := DiscoverSriovDevices()
@@ -562,7 +627,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 	})
 
 	Context("Empty VF Lists", func() {
-		It("should handle PF with no VFs", func() {
+		It("should discover a PF with no VFs as a PF device", func() {
 			pciInfo := &pci.Info{
 				Devices: []*pci.Device{
 					{
@@ -582,10 +647,16 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
 			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return([]host.VFInfo{}, nil) // Empty list
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
 
 			devices, err := DiscoverSriovDevices()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(devices).To(HaveLen(0))
+			Expect(devices).To(HaveLen(1))
+
+			pf := devices["0000-01-00-0"]
+			Expect(pf.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypePF)))
+			Expect(pf.Attributes[consts.AttributeNumVFs].IntValue).To(Equal(ptr.To(int64(0))))
+			Expect(pf.Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
 		})
 	})
 })

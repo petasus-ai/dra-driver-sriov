@@ -101,6 +101,15 @@ spec:
                       items:
                         description: ResourceFilter is a filter for a resource
                         properties:
+                          deviceType:
+                            description: |-
+                              DeviceType selects whether this filter matches virtual functions
+                              ("vf", the default) or physical functions ("pf"). PF advertisement
+                              is strictly opt-in: a filter without deviceType never matches a PF.
+                            enum:
+                            - vf
+                            - pf
+                            type: string
                           devices:
                             items:
                               type: string
