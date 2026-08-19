@@ -14,7 +14,10 @@ image:
   repository: quay.io/edgestack/dra-driver-sriov
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  # Set explicitly to "latest" so deployments always pull the newest
+  # image, even from published charts whose appVersion is stamped with
+  # a commit SHA at packaging time.
+  tag: "latest"
 
 serviceAccount:
   # Specifies whether a service account should be created
@@ -58,7 +61,7 @@ kubeletPlugin:
   nriPluginName: dra-driver-sriov
   nriPluginIndex: 42
   defaultInterfacePrefix: vfnet
-  configurationMode: STANDALONE
+  configurationMode: MULTUS
   enableDeviceMetadata: false
   containers:
     init:
