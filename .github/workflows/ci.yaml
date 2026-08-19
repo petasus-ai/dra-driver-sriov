@@ -102,11 +102,15 @@ jobs:
       - name: Run unit tests with coverage
         run: make test-coverage
 
-      - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@v2
+      # Coveralls was tied to the upstream repository; this fork keeps the
+      # coverage profile as a build artifact instead (same as dra-driver-xpu).
+      - name: Upload the coverage profile
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: coverage.out
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
 
   build-container:
     name: Build Container
