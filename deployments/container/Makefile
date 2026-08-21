@@ -17,7 +17,6 @@ CONTAINER_TOOL ?= docker
 MKDIR ?= mkdir
 DISTRIBUTIONS := centos9
 DOCKERFILE := $(CURDIR)/Dockerfile
-GOARCH ?= amd64
 
 include $(CURDIR)/../../common.mk
 
@@ -26,7 +25,9 @@ include $(CURDIR)/../../common.mk
 
 centos9: BASE_IMAGE = quay.io/centos/centos:stream9
 
-# Use a generic build target to build the relevant images
+# Use a generic build target to build the relevant images.
+# BuildKit derives TARGETOS/TARGETARCH from the build platform; cross-build
+# with e.g. `docker buildx build --platform linux/arm64 ...` if needed.
 $(DISTRIBUTIONS):
 	DOCKER_BUILDKIT=1 \
 		$(CONTAINER_TOOL) build --pull \
@@ -34,7 +35,6 @@ $(DISTRIBUTIONS):
 		--build-arg GOLANG_VERSION="$(GOLANG_VERSION)" \
 		--build-arg BASE_IMAGE="$(BASE_IMAGE)" \
 		--build-arg VERSION="$(VERSION)" \
-		--build-arg GOARCH="$(GOARCH)" \
 		-f $(DOCKERFILE) \
 		$(CURDIR)/../..
 

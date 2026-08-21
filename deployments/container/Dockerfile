@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Copyright 2023 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,22 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=undefined
-ARG BASE_IMAGE=undefined
+ARG GOLANG_VERSION=1.26
+ARG BASE_IMAGE=quay.io/centos/centos:stream9
 
 # Build stage using native architecture to avoid emulation issues during Go compilation
 FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} AS build
 
-ARG GOARCH=amd64
+# TARGETOS/TARGETARCH are set by BuildKit from the requested --platform
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /go/src/github.com/k8snetworkplumbingwg/dra-driver-sriov
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
 COPY . .
 
-RUN mkdir /artifacts
-RUN GOARCH=${GOARCH} make PREFIX=/artifacts cmds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    mkdir /artifacts && \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} make PREFIX=/artifacts cmds
 
 # Final stage using target architecture
-FROM --platform=linux/amd64 ${BASE_IMAGE}
+FROM ${BASE_IMAGE}
+
+ARG VERSION="N/A"
+ARG RELEASE="N/A"
 
 LABEL org.opencontainers.image.source=https://github.com/k8snetworkplumbingwg/dra-driver-sriov
 LABEL org.opencontainers.image.description="Dynamic Resource Allocation (DRA) resource driver for SR-IOV devices"
@@ -39,10 +52,8 @@ LABEL org.opencontainers.image.release=${RELEASE}
 LABEL io.k8s.display-name="Dynamic Resource Allocation (DRA) resource driver for SR-IOV devices"
 LABEL name="Dynamic Resource Allocation (DRA) resource driver for SR-IOV devices"
 LABEL vendor="sriovnetwork.k8snetworkplumbingwg.io"
-ARG VERSION="N/A"
 LABEL version=${VERSION}
-ARG RELEASE="N/A"
-LABEL release="N/A"
+LABEL release=${RELEASE}
 LABEL summary="Dynamic Resource Allocation (DRA) resource driver for SR-IOV devices"
 LABEL description="See summary"
 
