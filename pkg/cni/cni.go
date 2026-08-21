@@ -79,6 +79,14 @@ func (rntm *Runtime) AttachNetwork(ctx context.Context, pod *api.PodSandbox, pod
 			{"K8S_POD_UID", pod.Uid},
 		},
 	}
+	// A MAC in the claim's VfConfig rides the standard "mac" capability
+	// argument; libcni forwards it as runtimeConfig.mac only when the
+	// network attachment definition declares the capability.
+	if deviceConfig.Config != nil && deviceConfig.Config.Mac != "" {
+		rt.CapabilityArgs = map[string]interface{}{
+			"mac": deviceConfig.Config.Mac,
+		}
+	}
 	rawNetConf, err := netattdefclientutils.GetCNIConfigFromSpec(deviceConfig.NetAttachDefConfig, rntm.DriverName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to GetCNIConfigFromSpec: %v", err)

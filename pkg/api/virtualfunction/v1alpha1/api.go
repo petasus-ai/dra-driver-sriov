@@ -46,6 +46,12 @@ type VfConfig struct {
 	IfName                string `json:"ifName,omitempty"`
 	NetAttachDefName      string `json:"netAttachDefName,omitempty"`
 	NetAttachDefNamespace string `json:"netAttachDefNamespace,omitempty"`
+	// Mac is the MAC address to assign to the VF. It is handed to the CNI
+	// plugin through the "mac" capability argument, so it takes effect only
+	// when the referenced network attachment definition declares the "mac"
+	// capability. Because a MAC is per-workload, it belongs in the config of
+	// a dedicated ResourceClaim rather than a shared ResourceClaimTemplate.
+	Mac string `json:"mac,omitempty"`
 }
 
 // DefaultGpuConfig provides the default GPU configuration.
@@ -71,6 +77,9 @@ func (c *VfConfig) Override(other *VfConfig) {
 	}
 	if other.NetAttachDefName != "" {
 		c.NetAttachDefName = other.NetAttachDefName
+	}
+	if other.Mac != "" {
+		c.Mac = other.Mac
 	}
 }
 

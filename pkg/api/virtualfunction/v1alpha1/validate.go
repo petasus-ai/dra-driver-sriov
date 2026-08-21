@@ -1,6 +1,9 @@
 package v1alpha1
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+)
 
 // Validate ensures that GpuConfig has a valid set of values.
 func (c *VfConfig) Validate() error {
@@ -9,6 +12,11 @@ func (c *VfConfig) Validate() error {
 	}
 	if c.NetAttachDefName == "" {
 		return fmt.Errorf("no net attach def name set")
+	}
+	if c.Mac != "" {
+		if _, err := net.ParseMAC(c.Mac); err != nil {
+			return fmt.Errorf("invalid mac %q: %v", c.Mac, err)
+		}
 	}
 
 	return nil

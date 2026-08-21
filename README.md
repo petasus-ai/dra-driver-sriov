@@ -400,6 +400,14 @@ The `VfConfig` resource defines how Virtual Functions are configured and exposed
   - Default: Same namespace as the pod
   - Optional parameter for cross-namespace references
 
+- **`mac`**: MAC address to assign to the Virtual Function
+  - Default: `""` (no MAC override)
+  - Passed to the CNI plugin as the standard `mac` capability argument, so it
+    takes effect only when the referenced NetworkAttachmentDefinition declares
+    `"capabilities": {"mac": true}` in its CNI config
+  - A MAC is per-workload: set it in the config of a dedicated ResourceClaim,
+    not in a ResourceClaimTemplate shared by many consumers
+
 ### Advanced Parameters
 
 - **`addVhostMount`**: Mount vhost-user sockets into the container

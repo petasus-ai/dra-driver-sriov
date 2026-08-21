@@ -73,6 +73,16 @@ var _ = Describe("VfConfig", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 
+			It("should validate config with a well-formed mac", func() {
+				config := &VfConfig{
+					Driver:           "vfio-pci",
+					NetAttachDefName: "test-network",
+					Mac:              "02:00:00:12:34:56",
+				}
+				err := config.Validate()
+				Expect(err).NotTo(HaveOccurred())
+			})
+
 			It("should validate config with minimal required fields", func() {
 				config := &VfConfig{
 					Driver:           "vfio-pci",
@@ -118,6 +128,17 @@ var _ = Describe("VfConfig", func() {
 				config := DefaultVfConfig()
 				err := config.Validate()
 				Expect(err).To(HaveOccurred())
+			})
+
+			It("should return error for a malformed mac", func() {
+				config := &VfConfig{
+					Driver:           "vfio-pci",
+					NetAttachDefName: "test-network",
+					Mac:              "not-a-mac",
+				}
+				err := config.Validate()
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("invalid mac"))
 			})
 		})
 	})
@@ -177,6 +198,25 @@ var _ = Describe("VfConfig", func() {
 				Expect(base.Driver).To(Equal("vfio-pci"))
 				Expect(base.IfName).To(Equal("eth1"))
 				Expect(base.NetAttachDefName).To(Equal("net1"))
+			})
+
+			It("should override only Mac when other only has Mac set", func() {
+				base := &VfConfig{
+					Driver:           "vfio-pci",
+					IfName:           "eth0",
+					NetAttachDefName: "net1",
+					Mac:              "02:00:00:00:00:01",
+				}
+				other := &VfConfig{
+					Mac: "02:00:00:00:00:02",
+				}
+
+				base.Override(other)
+
+				Expect(base.Driver).To(Equal("vfio-pci"))
+				Expect(base.IfName).To(Equal("eth0"))
+				Expect(base.NetAttachDefName).To(Equal("net1"))
+				Expect(base.Mac).To(Equal("02:00:00:00:00:02"))
 			})
 
 			It("should override only NetAttachDefName when other only has NetAttachDefName set", func() {
