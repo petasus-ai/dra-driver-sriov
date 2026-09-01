@@ -241,6 +241,12 @@ func (d *Driver) unprepareResourceClaim(ctx context.Context, claim kubeletplugin
 	return nil
 }
 
+// WatchHealthStatus implements kubeletplugin.DRAPlugin. Device health
+// reporting to the kubelet is not supported by this driver.
+func (d *Driver) WatchHealthStatus(ctx context.Context, reports chan<- kubeletplugin.DeviceHealthReport) error {
+	return kubeletplugin.ErrHealthNotSupported
+}
+
 func (d *Driver) HandleError(ctx context.Context, err error, msg string) {
 	utilruntime.HandleErrorWithContext(ctx, err, msg)
 	if !errors.Is(err, kubeletplugin.ErrRecoverable) && d.cancelCtx != nil {
