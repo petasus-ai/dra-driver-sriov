@@ -25,9 +25,11 @@ import (
 	"time"
 
 	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	coreclientset "k8s.io/client-go/kubernetes"
 	metadatav1alpha1 "k8s.io/dynamic-resource-allocation/api/metadata/v1alpha1"
+	metadatav1beta1 "k8s.io/dynamic-resource-allocation/api/metadata/v1beta1"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
@@ -44,8 +46,15 @@ import (
 var (
 	enableDeviceMetadataOption = kubeletplugin.EnableDeviceMetadata
 	cdiDirectoryOption         = kubeletplugin.CDIDirectory
-	metadataVersionsOption     = kubeletplugin.MetadataVersions
 )
+
+// metadataVersions are the API versions used to encode device metadata files,
+// written in this order. The latest version must be included; v1alpha1 is kept
+// for consumers that haven't been updated to v1beta1 yet.
+var metadataVersions = []schema.GroupVersion{
+	metadatav1beta1.SchemeGroupVersion,
+	metadatav1alpha1.SchemeGroupVersion,
+}
 
 type Driver struct {
 	client             coreclientset.Interface
@@ -69,9 +78,8 @@ func buildPluginOptions(config *sriovdratype.Config) []kubeletplugin.Option {
 	if config.Flags.EnableDeviceMetadata {
 		pluginOpts = append(
 			pluginOpts,
-			enableDeviceMetadataOption(true),
+			enableDeviceMetadataOption(true, metadataVersions),
 			cdiDirectoryOption(config.Flags.CdiRoot),
-			metadataVersionsOption(metadatav1alpha1.SchemeGroupVersion),
 		)
 	}
 	return pluginOpts
