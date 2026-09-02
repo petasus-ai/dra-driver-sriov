@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
@@ -31,13 +31,13 @@ import (
 )
 
 func main() {
-	if err := newApp().Run(os.Args); err != nil {
+	if err := newCmd().Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func newApp() *cli.App {
+func newCmd() *cli.Command {
 	flagsOptions := &types.Flags{
 		LoggingConfig: flags.NewLoggingConfig(),
 	}
@@ -47,82 +47,81 @@ func newApp() *cli.App {
 			Usage:       "The name of the node to be worked on.",
 			Required:    true,
 			Destination: &flagsOptions.NodeName,
-			EnvVars:     []string{"NODE_NAME"},
+			Sources:     cli.EnvVars("NODE_NAME"),
 		},
 		&cli.StringFlag{
 			Name:        "cdi-root",
 			Usage:       "Absolute path to the directory where CDI files will be generated.",
 			Value:       "/var/run/cdi",
 			Destination: &flagsOptions.CdiRoot,
-			EnvVars:     []string{"CDI_ROOT"},
+			Sources:     cli.EnvVars("CDI_ROOT"),
 		},
 		&cli.StringFlag{
 			Name:        "kubelet-registrar-directory-path",
 			Usage:       "Absolute path to the directory where kubelet stores plugin registrations.",
 			Value:       kubeletplugin.KubeletRegistryDir,
 			Destination: &flagsOptions.KubeletRegistrarDirectoryPath,
-			EnvVars:     []string{"KUBELET_REGISTRAR_DIRECTORY_PATH"},
+			Sources:     cli.EnvVars("KUBELET_REGISTRAR_DIRECTORY_PATH"),
 		},
 		&cli.StringFlag{
 			Name:        "kubelet-plugins-directory-path",
 			Usage:       "Absolute path to the directory where kubelet stores plugin data.",
 			Value:       kubeletplugin.KubeletPluginsDir,
 			Destination: &flagsOptions.KubeletPluginsDirectoryPath,
-			EnvVars:     []string{"KUBELET_PLUGINS_DIRECTORY_PATH"},
+			Sources:     cli.EnvVars("KUBELET_PLUGINS_DIRECTORY_PATH"),
 		},
 		&cli.IntFlag{
 			Name:        "healthcheck-port",
 			Usage:       "Port to start a gRPC healthcheck service. When positive, a literal port number. When zero, a random port is allocated. When negative, the healthcheck service is disabled.",
 			Value:       -1,
 			Destination: &flagsOptions.HealthcheckPort,
-			EnvVars:     []string{"HEALTHCHECK_PORT"},
+			Sources:     cli.EnvVars("HEALTHCHECK_PORT"),
 		},
 		&cli.StringFlag{
 			Name:        "default-interface-prefix",
 			Usage:       "Default interface prefix to be used for the virtual functions.",
 			Value:       "vfnet",
 			Destination: &flagsOptions.DefaultInterfacePrefix,
-			EnvVars:     []string{"DEFAULT_INTERFACE_PREFIX"},
+			Sources:     cli.EnvVars("DEFAULT_INTERFACE_PREFIX"),
 		},
 		&cli.BoolFlag{
 			Name:        "enable-device-metadata",
 			Usage:       "Enable DRA in-container device metadata files for prepared devices.",
 			Value:       false,
 			Destination: &flagsOptions.EnableDeviceMetadata,
-			EnvVars:     []string{"ENABLE_DEVICE_METADATA"},
+			Sources:     cli.EnvVars("ENABLE_DEVICE_METADATA"),
 		},
 		&cli.StringFlag{
 			Name:        "namespace",
 			Usage:       "Namespace where the driver should watch for SriovResourcePolicy resources.",
 			Value:       "dra-driver-sriov",
 			Destination: &flagsOptions.Namespace,
-			EnvVars:     []string{"NAMESPACE"},
+			Sources:     cli.EnvVars("NAMESPACE"),
 		},
 		&cli.StringFlag{
 			Name:        "configuration-mode",
 			Usage:       "Configuration mode: STANDALONE or MULTUS.",
 			Value:       string(consts.ConfigurationModeStandalone),
 			Destination: &flagsOptions.ConfigurationMode,
-			EnvVars:     []string{"CONFIGURATION_MODE"},
+			Sources:     cli.EnvVars("CONFIGURATION_MODE"),
 		},
 	}
 	cliFlags = append(cliFlags, flagsOptions.KubeClientConfig.Flags()...)
 	cliFlags = append(cliFlags, flagsOptions.LoggingConfig.Flags()...)
 
-	app := &cli.App{
+	cmd := &cli.Command{
 		Name:            "dra-driver-sriov",
 		Usage:           "dra-driver-sriov implements a DRA driver plugin for SR-IOV virtual functions.",
 		ArgsUsage:       " ",
 		HideHelpCommand: true,
 		Flags:           cliFlags,
-		Before: func(c *cli.Context) error {
-			if c.Args().Len() > 0 {
-				return fmt.Errorf("arguments not supported: %v", c.Args().Slice())
+		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+			if cmd.Args().Len() > 0 {
+				return ctx, fmt.Errorf("arguments not supported: %v", cmd.Args().Slice())
 			}
-			return flagsOptions.LoggingConfig.Apply()
+			return ctx, flagsOptions.LoggingConfig.Apply()
 		},
-		Action: func(c *cli.Context) error {
-			ctx := c.Context
+		Action: func(ctx context.Context, cmd *cli.Command) error {
 			clientSets, err := flagsOptions.KubeClientConfig.NewClientSets()
 			if err != nil {
 				return fmt.Errorf("create client: %v", err)
@@ -137,7 +136,7 @@ func newApp() *cli.App {
 		},
 	}
 
-	return app
+	return cmd
 }
 
 // RunPlugin initializes and runs the sriov DRA plugin stack.

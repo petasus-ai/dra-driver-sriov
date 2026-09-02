@@ -19,7 +19,7 @@ package flags
 import (
 	"fmt"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	netattdefv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -62,15 +62,15 @@ func (k *KubeClientConfig) Flags() []cli.Flag {
 			Name:        "kubeconfig",
 			Usage:       "Absolute path to the `KUBECONFIG` file. Either this flag or the KUBECONFIG env variable need to be set if the driver is being run out of cluster.",
 			Destination: &k.KubeConfig,
-			EnvVars:     []string{"KUBECONFIG"},
+			Sources:     cli.EnvVars("KUBECONFIG"),
 		},
-		&cli.Float64Flag{
+		&cli.FloatFlag{
 			Category:    "Kubernetes client:",
 			Name:        "kube-api-qps",
 			Usage:       "`QPS` to use while communicating with the Kubernetes apiserver.",
 			Value:       5,
 			Destination: &k.KubeAPIQPS,
-			EnvVars:     []string{"KUBE_API_QPS"},
+			Sources:     cli.EnvVars("KUBE_API_QPS"),
 		},
 		&cli.IntFlag{
 			Category:    "Kubernetes client:",
@@ -78,7 +78,7 @@ func (k *KubeClientConfig) Flags() []cli.Flag {
 			Usage:       "`Burst` to use while communicating with the Kubernetes apiserver.",
 			Value:       10,
 			Destination: &k.KubeAPIBurst,
-			EnvVars:     []string{"KUBE_API_BURST"},
+			Sources:     cli.EnvVars("KUBE_API_BURST"),
 		},
 	}
 
