@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/component-base/featuregate"
@@ -75,13 +75,22 @@ func (l *LoggingConfig) Flags() []cli.Flag {
 	return flags
 }
 
+// pflagValue adapts a pflag.Value to the cli.Value interface, which
+// additionally requires flag.Getter.
+type pflagValue struct {
+	pflag.Value
+}
+
+func (p pflagValue) Get() any {
+	return p.Value.String()
+}
+
 func pflagToCLI(flag *pflag.Flag, category string) cli.Flag {
 	return &cli.GenericFlag{
-		Name:        flag.Name,
-		Category:    category,
-		Usage:       flag.Usage,
-		Value:       flag.Value,
-		Destination: flag.Value,
-		EnvVars:     []string{strings.ToUpper(strings.ReplaceAll(flag.Name, "-", "_"))},
+		Name:     flag.Name,
+		Category: category,
+		Usage:    flag.Usage,
+		Value:    pflagValue{flag.Value},
+		Sources:  cli.EnvVars(strings.ToUpper(strings.ReplaceAll(flag.Name, "-", "_"))),
 	}
 }

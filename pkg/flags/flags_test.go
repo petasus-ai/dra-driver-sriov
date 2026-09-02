@@ -1,11 +1,12 @@
 package flags_test
 
 import (
+	"context"
 	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	"github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/flags"
 )
@@ -24,7 +25,7 @@ var _ = Describe("Flags", func() {
 
 			// Find each flag by name
 			var kubeconfigFlag *cli.StringFlag
-			var qpsFloat64Flag *cli.Float64Flag
+			var qpsFloatFlag *cli.FloatFlag
 			var burstIntFlag *cli.IntFlag
 
 			for _, flag := range cliFlags {
@@ -32,7 +33,7 @@ var _ = Describe("Flags", func() {
 				case "kubeconfig":
 					kubeconfigFlag = flag.(*cli.StringFlag)
 				case "kube-api-qps":
-					qpsFloat64Flag = flag.(*cli.Float64Flag)
+					qpsFloatFlag = flag.(*cli.FloatFlag)
 				case "kube-api-burst":
 					burstIntFlag = flag.(*cli.IntFlag)
 				}
@@ -41,21 +42,21 @@ var _ = Describe("Flags", func() {
 			// Verify kubeconfig flag
 			Expect(kubeconfigFlag).NotTo(BeNil())
 			Expect(kubeconfigFlag.Name).To(Equal("kubeconfig"))
-			Expect(kubeconfigFlag.EnvVars).To(ContainElement("KUBECONFIG"))
+			Expect(kubeconfigFlag.Sources.EnvKeys()).To(ContainElement("KUBECONFIG"))
 			Expect(kubeconfigFlag.Category).To(Equal("Kubernetes client:"))
 
 			// Verify QPS flag
-			Expect(qpsFloat64Flag).NotTo(BeNil())
-			Expect(qpsFloat64Flag.Name).To(Equal("kube-api-qps"))
-			Expect(qpsFloat64Flag.Value).To(Equal(float64(5)))
-			Expect(qpsFloat64Flag.EnvVars).To(ContainElement("KUBE_API_QPS"))
-			Expect(qpsFloat64Flag.Category).To(Equal("Kubernetes client:"))
+			Expect(qpsFloatFlag).NotTo(BeNil())
+			Expect(qpsFloatFlag.Name).To(Equal("kube-api-qps"))
+			Expect(qpsFloatFlag.Value).To(Equal(float64(5)))
+			Expect(qpsFloatFlag.Sources.EnvKeys()).To(ContainElement("KUBE_API_QPS"))
+			Expect(qpsFloatFlag.Category).To(Equal("Kubernetes client:"))
 
 			// Verify Burst flag
 			Expect(burstIntFlag).NotTo(BeNil())
 			Expect(burstIntFlag.Name).To(Equal("kube-api-burst"))
 			Expect(burstIntFlag.Value).To(Equal(10))
-			Expect(burstIntFlag.EnvVars).To(ContainElement("KUBE_API_BURST"))
+			Expect(burstIntFlag.Sources.EnvKeys()).To(ContainElement("KUBE_API_BURST"))
 			Expect(burstIntFlag.Category).To(Equal("Kubernetes client:"))
 		})
 
@@ -63,16 +64,16 @@ var _ = Describe("Flags", func() {
 			cliFlags := kubeClientConfig.Flags()
 
 			// Create a mock CLI app to test flag parsing
-			app := &cli.App{
+			app := &cli.Command{
 				Name:  "test",
 				Flags: cliFlags,
-				Action: func(c *cli.Context) error {
+				Action: func(ctx context.Context, cmd *cli.Command) error {
 					return nil
 				},
 			}
 
 			// Test with custom values
-			err := app.Run([]string{"test", "--kubeconfig", "/custom/path", "--kube-api-qps", "10.5", "--kube-api-burst", "20"})
+			err := app.Run(context.Background(), []string{"test", "--kubeconfig", "/custom/path", "--kube-api-qps", "10.5", "--kube-api-burst", "20"})
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(kubeClientConfig.KubeConfig).To(Equal("/custom/path"))
@@ -95,16 +96,16 @@ var _ = Describe("Flags", func() {
 			cliFlags := kubeClientConfig.Flags()
 
 			// Create a mock CLI app to test environment variable parsing
-			app := &cli.App{
+			app := &cli.Command{
 				Name:  "test",
 				Flags: cliFlags,
-				Action: func(c *cli.Context) error {
+				Action: func(ctx context.Context, cmd *cli.Command) error {
 					return nil
 				},
 			}
 
 			// Run without explicit flags to test env vars
-			err := app.Run([]string{"test"})
+			err := app.Run(context.Background(), []string{"test"})
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(kubeClientConfig.KubeConfig).To(Equal("/env/kubeconfig"))
