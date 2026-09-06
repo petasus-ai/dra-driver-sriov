@@ -112,7 +112,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           file: ./deployments/container/Dockerfile
           build-args: |
-            GOLANG_VERSION=1.26
+            GOLANG_VERSION=1.27
             BASE_IMAGE=quay.io/centos/centos:stream9
           cache-from: type=gha
           cache-to: type=gha,mode=max

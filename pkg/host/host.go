@@ -681,7 +681,8 @@ func (h *Host) IsKernelModuleLoaded(moduleName string) bool {
 func (h *Host) LoadKernelModule(moduleName string) error {
 	h.log.V(2).Info("LoadKernelModule(): loading kernel module", "module", moduleName)
 
-	cmd := exec.Command("chroot", "/proc/1/root", "modprobe", moduleName)
+	// moduleName comes from the driver's fixed module tables, not from user input.
+	cmd := exec.Command("chroot", "/proc/1/root", "modprobe", moduleName) //nolint:gosec // G204
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		h.log.Error(err, "LoadKernelModule(): failed to load kernel module",

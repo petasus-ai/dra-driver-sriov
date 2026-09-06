@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 env:
-  GOLANG_VERSION: "1.26"
+  GOLANG_VERSION: "1.27"
   IMAGE_NAME: quay.io/edgestack/dra-driver-sriov
   BUILD_PLATFORMS: linux/amd64,linux/arm64
 

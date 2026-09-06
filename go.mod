@@ -1,6 +1,6 @@
 module github.com/k8snetworkplumbingwg/dra-driver-sriov
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/Mellanox/rdmamap v1.2.0

@@ -21,7 +21,7 @@ linters:
     - gochecknoinits
     - goconst
     - gocritic
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - gosec
     - govet
@@ -45,6 +45,12 @@ linters:
     goconst:
       min-len: 2
       min-occurrences: 2
+      # goconst >= v1.10 (golangci-lint v2.13) also scans composite literals
+      # (struct fields, slice elements). Keep the pre-existing scope: only
+      # function-call arguments are excluded by default.
+      exclude-types:
+        - Call
+        - CompositeLit
     misspell:
       locale: US
     gosec:
