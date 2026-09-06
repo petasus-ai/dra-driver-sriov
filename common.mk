@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-GOLANG_VERSION ?= 1.26
+GOLANG_VERSION ?= 1.27
 
 # Tool versions for development container
-GOLANGCI_LINT_VERSION ?= v2.7.2
+GOLANGCI_LINT_VERSION ?= v2.13.2
 MOQ_VERSION ?= v0.4.0
 CONTROLLER_GEN_VERSION ?= v0.20.0
 CLIENT_GEN_VERSION ?= v0.29.2
