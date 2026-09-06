@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=1.26
+ARG GOLANG_VERSION=1.27
 ARG BASE_IMAGE=quay.io/centos/centos:stream9
 
 # Build stage using native architecture to avoid emulation issues during Go compilation
