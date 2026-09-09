@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          git config --global user.email "opensonaproject@gmail.com"
+          git config --global user.email "edgestack-bot@users.noreply.github.com"
           git config --global user.name "edgestack-bot"
 
           cd edgestack-helm
