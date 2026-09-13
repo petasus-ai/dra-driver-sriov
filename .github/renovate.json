@@ -5,7 +5,7 @@
   "labels": ["dependencies"],
   "osvVulnerabilityAlerts": true,
   "minimumReleaseAge": "3 days",
-  "prCreation": "not-pending",
+  "prCreation": "immediate",
   "prConcurrentLimit": 5,
   "platformAutomerge": true,
   "packageRules": [
