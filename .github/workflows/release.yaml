@@ -25,7 +25,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set short SHA
         id: vars
@@ -34,13 +34,13 @@ jobs:
       # QEMU is only needed for the non-native final stage (yum install);
       # the Go build stage cross-compiles on the native build platform.
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Log in to Quay
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: quay.io
           username: edgestack
@@ -51,7 +51,7 @@ jobs:
       # `git rev-parse --short=7`, so the short-SHA tag format must not change.
       - name: Docker meta
         id: docker_meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
@@ -60,7 +60,7 @@ jobs:
             type=sha,prefix=,format=short
 
       - name: Build and push container image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           push: true

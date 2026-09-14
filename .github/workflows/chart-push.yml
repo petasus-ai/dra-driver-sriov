@@ -27,13 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Chart Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: workspace
           fetch-depth: 0
 
       - name: Helm Installation
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
         with:
           version: v4.3.0
 
@@ -48,7 +48,7 @@ jobs:
             --namespace dra-driver-sriov --kube-version 1.34.0 >/dev/null
 
       - name: Helm Repository Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: ${{ env.HELM_REPO }}
           token: ${{ secrets.MY_TOKEN }}
