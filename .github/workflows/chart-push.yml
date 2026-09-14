@@ -35,7 +35,7 @@ jobs:
       - name: Helm Installation
         uses: azure/setup-helm@v5
         with:
-          version: v4.2.4
+          version: v4.3.0
 
       # A broken chart in the shared repository breaks every consumer of it,
       # and nothing else stands between this job and that repository.
