@@ -71,6 +71,13 @@
       "matchManagers": ["gomod", "dockerfile"],
       "matchPackageNames": ["go", "golang"],
       "groupName": "go toolchain"
+    },
+    {
+      "description": "netlink is tracked at an untagged commit because sriovnet requires a post-v1.3.1 pseudo-version. The version we need is dictated by sriovnet, so skip standalone digest bumps; the sriovnet update PR pulls the matching netlink commit via go mod tidy.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/vishvananda/netlink"],
+      "matchUpdateTypes": ["digest"],
+      "enabled": false
     }
   ],
   "customManagers": [
