@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices"],
+  "extends": ["config:recommended", ":configMigration"],
+  "pinDigests": false,
   "timezone": "Asia/Seoul",
   "labels": ["dependencies"],
   "osvVulnerabilityAlerts": true,
@@ -10,8 +11,8 @@
   "platformAutomerge": true,
   "packageRules": [
     {
-      "description": "Automerge minor/patch/digest updates via platform auto-merge. pinDigest is a separate update type from digest — it is the one-off that replaces a tag with the commit it currently points at — so it has to be listed or the pinning PRs config:best-practices opens sit unmerged.",
-      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "description": "Automerge minor/patch updates via platform auto-merge.",
+      "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
     },
     {
@@ -25,8 +26,12 @@
       "groupName": "github actions dependencies"
     },
     {
-      "description": "Disable digest pinning for all Dockerfile base images — rebuild noise outweighs the benefit",
-      "matchManagers": ["dockerfile"],
+      "description": "Never pin to SHA digests — not container images (Dockerfile, Helm values, manifests) and not GitHub Actions. Tag-level updates are the granularity we want; digest churn is noise. This rule guards against a preset (e.g. config:best-practices) re-enabling it.",
+      "matchDatasources": ["docker", "github-tags", "github-releases"],
+      "pinDigests": false
+    },
+    {
+      "matchDepTypes": ["action"],
       "pinDigests": false
     },
     {
