@@ -17,7 +17,7 @@ image:
   # Set explicitly to "latest" so deployments always pull the newest
   # image, even from published charts whose appVersion is stamped with
   # a commit SHA at packaging time.
-  tag: "latest"
+  tag: "latest@sha256:e6b31b004e8b313cf346a99eab90f7a0f68d0daacb244dff0427081404284bad"
 
 serviceAccount:
   # Specifies whether a service account should be created
