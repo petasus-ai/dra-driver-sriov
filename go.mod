@@ -14,7 +14,7 @@ require (
 	github.com/onsi/gomega v1.43.0
 	github.com/spf13/pflag v1.0.10
 	github.com/urfave/cli/v3 v3.11.0
-	github.com/vishvananda/netlink v1.3.2-0.20251101063711-6e61cd407d1d
+	github.com/vishvananda/netlink v1.3.2-0.20260831221819-dcee5577542a
 	go.uber.org/mock v0.6.0
 	google.golang.org/grpc v1.83.2
 	k8s.io/api v0.37.0
