@@ -199,16 +199,26 @@ var _ = Describe("SriovResourcePolicyReconciler (envtest)", func() {
 	})
 
 	It("should apply DeviceAttributes when selector matches", func(ctx SpecContext) {
-		// Clean up existing policies
+		// Clean up existing policies. Delete unconditionally: k8sClient reads
+		// from the manager cache, so a Get right after the previous spec's
+		// Create can return NotFound and silently skip the delete. A leftover
+		// policy sorts before rp-with-attrs and claims every device without
+		// attributes, which is exactly what this spec must not see.
 		for _, name := range []string{"rp-empty-selector", "rp-duplicate"} {
-			rp := &sriovdrav1alpha1.SriovResourcePolicy{}
-			if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: "dra-driver-sriov", Name: name}, rp); err == nil {
-				_ = k8sClient.Delete(ctx, rp)
+			rp := &sriovdrav1alpha1.SriovResourcePolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "dra-driver-sriov"},
 			}
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, rp))).To(Succeed())
 		}
 
-		// Wait for deletion
-		time.Sleep(500 * time.Millisecond)
+		// Wait until the cache no longer sees any policy in the namespace.
+		Eventually(func() int {
+			list := &sriovdrav1alpha1.SriovResourcePolicyList{}
+			if err := k8sClient.List(ctx, list, client.InNamespace("dra-driver-sriov")); err != nil {
+				return -1
+			}
+			return len(list.Items)
+		}, 5*time.Second, 100*time.Millisecond).Should(Equal(0))
 
 		resName := "my-pool"
 		da := &sriovdrav1alpha1.DeviceAttributes{
