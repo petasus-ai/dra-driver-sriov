@@ -126,7 +126,7 @@ replace (
 	k8s.io/cloud-provider => k8s.io/cloud-provider v0.37.0
 	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.37.0
 	k8s.io/controller-manager => k8s.io/controller-manager v0.37.0
-	k8s.io/cri-api => k8s.io/cri-api v0.37.0
+	k8s.io/cri-api => k8s.io/cri-api v0.37.1
 	k8s.io/cri-client => k8s.io/cri-client v0.37.0
 	k8s.io/cri-streaming => k8s.io/cri-streaming v0.37.0
 	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.37.0
