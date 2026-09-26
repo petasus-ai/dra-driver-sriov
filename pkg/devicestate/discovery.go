@@ -25,6 +25,8 @@ type PFInfo struct {
 	PCIeRoot    string
 	LinkType    string
 	NumaNode    string
+	// MTU of the PF netdev; 0 when there is no netdev or it cannot be read.
+	MTU int
 }
 
 func DiscoverSriovDevices() (types.AllocatableDevices, error) {
@@ -106,6 +108,20 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 				"address", device.Address, "linkType", linkType, "getLinkTypeErr", err)
 		}
 
+		// The PF MTU caps what its VFs can carry. It is read once here and
+		// stamped on the PF and every VF; a PF without a netdev has none to
+		// report, and a read failure leaves the attribute out rather than
+		// failing discovery.
+		mtu := 0
+		if pfNetName != "" {
+			mtu, err = host.GetHelpers().GetNetDevMTU(pfNetName)
+			if err != nil {
+				logger.V(1).Info("Failed to read PF MTU, leaving pfMTU out",
+					"address", device.Address, "interface", pfNetName, "err", err)
+				mtu = 0
+			}
+		}
+
 		logger.Info("Found SR-IOV PF device",
 			"address", device.Address,
 			"interface", pfNetName,
@@ -114,7 +130,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			"eswitchMode", eswitchMode,
 			"numaNode", numaNode,
 			"pcieRoot", pcieRoot,
-			"linkType", linkType)
+			"linkType", linkType,
+			"mtu", mtu)
 
 		pfList = append(pfList, PFInfo{
 			PciAddress:  device.Address,
@@ -126,6 +143,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			PCIeRoot:    pcieRoot,
 			LinkType:    linkType,
 			NumaNode:    numaNode,
+			MTU:         mtu,
 		})
 	}
 
@@ -225,12 +243,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 					IntValue: numaNodeIntPtr,
 				},
 			}
-			// A netdev-less PF (vfio-bound) has no name to report.
-			if pfInfo.NetName != "" {
-				attributes[consts.AttributePFName] = resourceapi.DeviceAttribute{
-					StringValue: ptr.To(pfInfo.NetName),
-				}
-			}
+			addPFNetdevAttributes(attributes, pfInfo)
 
 			resourceList[deviceName] = resourceapi.Device{
 				Name:       deviceName,
@@ -245,8 +258,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 
 // buildPFDevice builds the allocatable device entry for a PF candidate. The
 // attribute layout mirrors the VF entries with self-referential parent
-// fields; vfID is omitted (no meaningful value) and PFName is omitted for
-// netdev-less PFs.
+// fields; vfID is omitted (no meaningful value), and PFName and pfMTU are
+// omitted for netdev-less PFs.
 func buildPFDevice(pfInfo PFInfo, numVFs int, numaNode *int64) resourceapi.Device {
 	deviceName := strings.ReplaceAll(pfInfo.Address, ":", "-")
 	deviceName = strings.ReplaceAll(deviceName, ".", "-")
@@ -297,15 +310,27 @@ func buildPFDevice(pfInfo PFInfo, numVFs int, numaNode *int64) resourceapi.Devic
 			IntValue: numaNode,
 		},
 	}
+	addPFNetdevAttributes(attributes, pfInfo)
+
+	return resourceapi.Device{
+		Name:       deviceName,
+		Attributes: attributes,
+	}
+}
+
+// addPFNetdevAttributes adds the attributes that come from the PF netdev,
+// PFName and pfMTU, to a VF or PF entry. A netdev-less PF (vfio-bound) has
+// neither to report, and an MTU that could not be read is left out.
+func addPFNetdevAttributes(attributes map[resourceapi.QualifiedName]resourceapi.DeviceAttribute, pfInfo PFInfo) {
 	if pfInfo.NetName != "" {
 		attributes[consts.AttributePFName] = resourceapi.DeviceAttribute{
 			StringValue: ptr.To(pfInfo.NetName),
 		}
 	}
-
-	return resourceapi.Device{
-		Name:       deviceName,
-		Attributes: attributes,
+	if pfInfo.MTU > 0 {
+		attributes[consts.AttributePfMTU] = resourceapi.DeviceAttribute{
+			IntValue: ptr.To(int64(pfInfo.MTU)),
+		}
 	}
 }
 

@@ -55,6 +55,13 @@ const (
 	// device. Only present on "pf" entries; used to keep a PF and its VFs
 	// mutually exclusive at advertisement time.
 	AttributeNumVFs = DriverName + "/numVFs"
+	// AttributePfMTU is the MTU of the device's PF netdev: the parent PF's
+	// on a VF, the PF's own on a "pf" entry. A VF cannot carry a larger MTU
+	// than its PF, so consumers can check a network's MTU against it.
+	// Omitted when the PF has no netdev (e.g. bound to vfio-pci) or its MTU
+	// cannot be read. Discovery runs at driver start, so a PF MTU changed
+	// later shows up after a restart.
+	AttributePfMTU = DriverName + "/pfMTU"
 
 	// DeviceTypeVF and DeviceTypePF are the values of AttributeDeviceType.
 	DeviceTypeVF = "vf"
@@ -109,6 +116,7 @@ var ReservedAttributes = map[resourceapi.QualifiedName]bool{
 	AttributeNUMANode:           true,
 	AttributeDeviceType:         true,
 	AttributeNumVFs:             true,
+	AttributePfMTU:              true,
 }
 
 type ConfigurationMode string

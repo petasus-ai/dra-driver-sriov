@@ -313,6 +313,57 @@ var _ = Describe("Host", func() {
 				Expect(linkType).To(BeEmpty())
 			})
 		})
+
+		Context("GetNetDevMTU", func() {
+			It("should return the MTU from sysfs", func() {
+				fs.Dirs = []string{"sys/class/net/eth0"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/eth0/mtu": []byte("9000\n"),
+				}
+				tearDown = fs.Use()
+
+				mtu, err := h.GetNetDevMTU("eth0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(mtu).To(Equal(9000))
+			})
+
+			It("should return error when no interface name is given", func() {
+				tearDown = fs.Use()
+
+				mtu, err := h.GetNetDevMTU("")
+				Expect(err).To(HaveOccurred())
+				Expect(mtu).To(BeZero())
+			})
+
+			It("should return error when the mtu file does not exist", func() {
+				fs.Dirs = []string{"sys/class/net/eth0"}
+				tearDown = fs.Use()
+
+				mtu, err := h.GetNetDevMTU("eth0")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to read MTU"))
+				Expect(mtu).To(BeZero())
+			})
+
+			It("should return error when the mtu file holds no positive number", func() {
+				fs.Dirs = []string{"sys/class/net/eth0", "sys/class/net/eth1"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/eth0/mtu": []byte("jumbo\n"),
+					"sys/class/net/eth1/mtu": []byte("0\n"),
+				}
+				tearDown = fs.Use()
+
+				mtu, err := h.GetNetDevMTU("eth0")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to parse MTU value"))
+				Expect(mtu).To(BeZero())
+
+				mtu, err = h.GetNetDevMTU("eth1")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("invalid MTU"))
+				Expect(mtu).To(BeZero())
+			})
+		})
 	})
 
 	Describe("Topology Functions", func() {

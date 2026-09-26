@@ -143,6 +143,21 @@ func (mr *MockInterfaceMockRecorder) GetLinkType(pciAddr any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLinkType", reflect.TypeOf((*MockInterface)(nil).GetLinkType), pciAddr)
 }
 
+// GetNetDevMTU mocks base method.
+func (m *MockInterface) GetNetDevMTU(ifName string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNetDevMTU", ifName)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNetDevMTU indicates an expected call of GetNetDevMTU.
+func (mr *MockInterfaceMockRecorder) GetNetDevMTU(ifName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetDevMTU", reflect.TypeOf((*MockInterface)(nil).GetNetDevMTU), ifName)
+}
+
 // GetNicSriovMode mocks base method.
 func (m *MockInterface) GetNicSriovMode(pciAddr string) string {
 	m.ctrl.T.Helper()

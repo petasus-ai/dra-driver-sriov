@@ -42,6 +42,7 @@ var _ = Describe("Consts", func() {
 				"vfID":         consts.DriverName + "/vfID",
 				"resourceName": consts.DriverName + "/resourceName",
 				"pfPciAddress": consts.DriverName + "/pfPciAddress",
+				"pfMTU":        consts.DriverName + "/pfMTU",
 			}
 
 			Expect(consts.AttributePciAddress).To(Equal(expectedAttributes["pciAddress"]))
@@ -53,6 +54,7 @@ var _ = Describe("Consts", func() {
 			Expect(consts.AttributeVFID).To(Equal(expectedAttributes["vfID"]))
 			Expect(consts.AttributeResourceName).To(Equal(expectedAttributes["resourceName"]))
 			Expect(consts.AttributePfPciAddress).To(Equal(expectedAttributes["pfPciAddress"]))
+			Expect(consts.AttributePfMTU).To(Equal(expectedAttributes["pfMTU"]))
 		})
 
 		It("should have correct attributes with standard prefix", func() {
@@ -86,6 +88,7 @@ var _ = Describe("Consts", func() {
 				consts.AttributeNUMANode,
 				consts.AttributeDeviceType,
 				consts.AttributeNumVFs,
+				consts.AttributePfMTU,
 			}
 
 			Expect(consts.ReservedAttributes).To(HaveLen(len(expectedReserved)))

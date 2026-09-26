@@ -91,6 +91,7 @@ type Interface interface {
 	TryGetPFInterfaceName(pciAddr string) string
 	GetNicSriovMode(pciAddr string) string
 	GetLinkType(pciAddr string) (string, error)
+	GetNetDevMTU(ifName string) (int, error)
 
 	// Topology functions
 	GetNumaNode(pciAddress string) (string, error)
@@ -331,6 +332,31 @@ func (h *Host) GetLinkType(pciAddr string) (string, error) {
 		h.log.V(1).Info("Unsupported link type, defaulting to unknown", "interface", ifName, "type", typeInt)
 		return consts.LinkTypeUnknown, nil
 	}
+}
+
+// GetNetDevMTU returns the MTU of a network interface, read from
+// /sys/class/net/<interface>/mtu the way GetLinkType reads the type.
+func (h *Host) GetNetDevMTU(ifName string) (int, error) {
+	if ifName == "" {
+		return 0, fmt.Errorf("no interface name to read the MTU of")
+	}
+
+	mtuPath := buildSysPath(fmt.Sprintf("/sys/class/net/%s/mtu", ifName))
+	content, err := os.ReadFile(mtuPath) /* #nosec G304 */
+	if err != nil {
+		return 0, fmt.Errorf("failed to read MTU for interface %s: %w", ifName, err)
+	}
+
+	mtuValue := strings.TrimSpace(string(content))
+	mtu, err := strconv.Atoi(mtuValue)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse MTU value %s for interface %s: %w", mtuValue, ifName, err)
+	}
+	if mtu <= 0 {
+		return 0, fmt.Errorf("invalid MTU %d for interface %s", mtu, ifName)
+	}
+
+	return mtu, nil
 }
 
 // GetNumaNode returns the NUMA node for a given PCI device.

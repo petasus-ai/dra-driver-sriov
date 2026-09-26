@@ -297,8 +297,8 @@ Rules that keep PF advertisement safe:
   a PF and its VFs mutually exclusive.
 - PF entries carry `deviceType: "pf"` and `numVFs` attributes, omit `vfID`,
   and their parent fields (`pfPciAddress`, `pfDeviceID`) reference the PF
-  itself. A PF bound to vfio-pci has no netdev, so `PFName` is omitted and
-  the link type is derived from the PCI subclass.
+  itself. A PF bound to vfio-pci has no netdev, so `PFName` and `pfMTU` are
+  omitted and the link type is derived from the PCI subclass.
 
 See [docs/design/pf-advertisement.md](docs/design/pf-advertisement.md) for the full design.
 
@@ -307,6 +307,13 @@ For Multus integration with `resource.k8s.io/v1` (as described in [multus-cni PR
 
 - `k8s.cni.cncf.io/resourceName`: must exactly match the NAD annotation `k8s.v1.cni.cncf.io/resourceName`
 - `k8s.cni.cncf.io/deviceID`: device identifier Multus passes to the CNI plugin
+
+Every device also carries `sriovnetwork.k8snetworkplumbingwg.io/pfMTU`, the MTU
+of its PF netdev: the parent PF's on a VF, the PF's own on a PF entry. A VF
+cannot carry a larger MTU than its PF, so a consumer can check a network's MTU
+against it. The attribute is omitted when the PF has no netdev or its MTU
+cannot be read. It is read at discovery, so a PF MTU changed later shows up
+after the driver restarts.
 
 ### Filtering Criteria
 
