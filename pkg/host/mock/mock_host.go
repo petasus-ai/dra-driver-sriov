@@ -158,6 +158,21 @@ func (mr *MockInterfaceMockRecorder) GetNetDevMTU(ifName any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetDevMTU", reflect.TypeOf((*MockInterface)(nil).GetNetDevMTU), ifName)
 }
 
+// GetNetDevSpeed mocks base method.
+func (m *MockInterface) GetNetDevSpeed(ifName string) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNetDevSpeed", ifName)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNetDevSpeed indicates an expected call of GetNetDevSpeed.
+func (mr *MockInterfaceMockRecorder) GetNetDevSpeed(ifName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNetDevSpeed", reflect.TypeOf((*MockInterface)(nil).GetNetDevSpeed), ifName)
+}
+
 // GetNicSriovMode mocks base method.
 func (m *MockInterface) GetNicSriovMode(pciAddr string) string {
 	m.ctrl.T.Helper()

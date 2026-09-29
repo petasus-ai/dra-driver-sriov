@@ -62,6 +62,15 @@ const (
 	// cannot be read. Discovery runs at driver start, so a PF MTU changed
 	// later shows up after a restart.
 	AttributePfMTU = DriverName + "/pfMTU"
+	// AttributePfLinkSpeedMbps is the link speed of the device's PF netdev
+	// in Mb/s, as the kernel reports it in /sys/class/net/<pf>/speed: the
+	// parent PF's on a VF, the PF's own on a "pf" entry. It is the line rate
+	// the PF's VFs share, not a per-VF guarantee. An InfiniBand PF reports
+	// its active IPoIB rate (e.g. 400000 for 4X NDR). Omitted when the PF
+	// has no netdev, its link is down, or the speed cannot be read.
+	// Discovery runs at driver start, so a renegotiated speed shows up after
+	// a restart.
+	AttributePfLinkSpeedMbps = DriverName + "/pfLinkSpeedMbps"
 
 	// DeviceTypeVF and DeviceTypePF are the values of AttributeDeviceType.
 	DeviceTypeVF = "vf"
@@ -117,6 +126,7 @@ var ReservedAttributes = map[resourceapi.QualifiedName]bool{
 	AttributeDeviceType:         true,
 	AttributeNumVFs:             true,
 	AttributePfMTU:              true,
+	AttributePfLinkSpeedMbps:    true,
 }
 
 type ConfigurationMode string

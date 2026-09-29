@@ -364,6 +364,59 @@ var _ = Describe("Host", func() {
 				Expect(mtu).To(BeZero())
 			})
 		})
+
+		Context("GetNetDevSpeed", func() {
+			It("should return the link speed in Mb/s from sysfs", func() {
+				fs.Dirs = []string{"sys/class/net/eth0"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/eth0/speed": []byte("400000\n"),
+				}
+				tearDown = fs.Use()
+
+				speed, err := h.GetNetDevSpeed("eth0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(speed).To(Equal(400000))
+			})
+
+			It("should return error when no interface name is given", func() {
+				tearDown = fs.Use()
+
+				speed, err := h.GetNetDevSpeed("")
+				Expect(err).To(HaveOccurred())
+				Expect(speed).To(BeZero())
+			})
+
+			It("should return error when the speed file cannot be read", func() {
+				// The kernel fails the read on a down interface; a missing
+				// file fails the same way here.
+				fs.Dirs = []string{"sys/class/net/eth0"}
+				tearDown = fs.Use()
+
+				speed, err := h.GetNetDevSpeed("eth0")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to read link speed"))
+				Expect(speed).To(BeZero())
+			})
+
+			It("should return error when the speed is unknown or not a number", func() {
+				fs.Dirs = []string{"sys/class/net/eth0", "sys/class/net/eth1"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/eth0/speed": []byte("-1\n"),
+					"sys/class/net/eth1/speed": []byte("fast\n"),
+				}
+				tearDown = fs.Use()
+
+				speed, err := h.GetNetDevSpeed("eth0")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("link speed unknown"))
+				Expect(speed).To(BeZero())
+
+				speed, err = h.GetNetDevSpeed("eth1")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to parse link speed value"))
+				Expect(speed).To(BeZero())
+			})
+		})
 	})
 
 	Describe("Topology Functions", func() {

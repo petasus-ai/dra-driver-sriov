@@ -43,6 +43,7 @@ var _ = Describe("Consts", func() {
 				"resourceName": consts.DriverName + "/resourceName",
 				"pfPciAddress": consts.DriverName + "/pfPciAddress",
 				"pfMTU":        consts.DriverName + "/pfMTU",
+				"pfLinkSpeed":  consts.DriverName + "/pfLinkSpeedMbps",
 			}
 
 			Expect(consts.AttributePciAddress).To(Equal(expectedAttributes["pciAddress"]))
@@ -55,6 +56,7 @@ var _ = Describe("Consts", func() {
 			Expect(consts.AttributeResourceName).To(Equal(expectedAttributes["resourceName"]))
 			Expect(consts.AttributePfPciAddress).To(Equal(expectedAttributes["pfPciAddress"]))
 			Expect(consts.AttributePfMTU).To(Equal(expectedAttributes["pfMTU"]))
+			Expect(consts.AttributePfLinkSpeedMbps).To(Equal(expectedAttributes["pfLinkSpeed"]))
 		})
 
 		It("should have correct attributes with standard prefix", func() {
@@ -89,6 +91,7 @@ var _ = Describe("Consts", func() {
 				consts.AttributeDeviceType,
 				consts.AttributeNumVFs,
 				consts.AttributePfMTU,
+				consts.AttributePfLinkSpeedMbps,
 			}
 
 			Expect(consts.ReservedAttributes).To(HaveLen(len(expectedReserved)))

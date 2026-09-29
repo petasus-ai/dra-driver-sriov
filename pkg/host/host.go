@@ -92,6 +92,7 @@ type Interface interface {
 	GetNicSriovMode(pciAddr string) string
 	GetLinkType(pciAddr string) (string, error)
 	GetNetDevMTU(ifName string) (int, error)
+	GetNetDevSpeed(ifName string) (int, error)
 
 	// Topology functions
 	GetNumaNode(pciAddress string) (string, error)
@@ -357,6 +358,33 @@ func (h *Host) GetNetDevMTU(ifName string) (int, error) {
 	}
 
 	return mtu, nil
+}
+
+// GetNetDevSpeed returns the link speed of a network interface in Mb/s,
+// read from /sys/class/net/<interface>/speed. The kernel fails the read
+// when the interface is down and reports -1 when the speed is unknown
+// (no carrier); both are returned as errors.
+func (h *Host) GetNetDevSpeed(ifName string) (int, error) {
+	if ifName == "" {
+		return 0, fmt.Errorf("no interface name to read the link speed of")
+	}
+
+	speedPath := buildSysPath(fmt.Sprintf("/sys/class/net/%s/speed", ifName))
+	content, err := os.ReadFile(speedPath) /* #nosec G304 */
+	if err != nil {
+		return 0, fmt.Errorf("failed to read link speed for interface %s: %w", ifName, err)
+	}
+
+	speedValue := strings.TrimSpace(string(content))
+	speed, err := strconv.Atoi(speedValue)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse link speed value %s for interface %s: %w", speedValue, ifName, err)
+	}
+	if speed <= 0 {
+		return 0, fmt.Errorf("link speed unknown (%d) for interface %s", speed, ifName)
+	}
+
+	return speed, nil
 }
 
 // GetNumaNode returns the NUMA node for a given PCI device.

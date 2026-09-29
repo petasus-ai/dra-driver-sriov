@@ -297,8 +297,9 @@ Rules that keep PF advertisement safe:
   a PF and its VFs mutually exclusive.
 - PF entries carry `deviceType: "pf"` and `numVFs` attributes, omit `vfID`,
   and their parent fields (`pfPciAddress`, `pfDeviceID`) reference the PF
-  itself. A PF bound to vfio-pci has no netdev, so `PFName` and `pfMTU` are
-  omitted and the link type is derived from the PCI subclass.
+  itself. A PF bound to vfio-pci has no netdev, so `PFName`, `pfMTU` and
+  `pfLinkSpeedMbps` are omitted and the link type is derived from the PCI
+  subclass.
 
 See [docs/design/pf-advertisement.md](docs/design/pf-advertisement.md) for the full design.
 
@@ -314,6 +315,15 @@ cannot carry a larger MTU than its PF, so a consumer can check a network's MTU
 against it. The attribute is omitted when the PF has no netdev or its MTU
 cannot be read. It is read at discovery, so a PF MTU changed later shows up
 after the driver restarts.
+
+Every device likewise carries
+`sriovnetwork.k8snetworkplumbingwg.io/pfLinkSpeedMbps`, the link speed of its PF
+netdev in Mb/s as the kernel reports it in `/sys/class/net/<pf>/speed` (for
+example `400000` for a 400 Gb/s port). It is the line rate the PF's VFs share,
+not a per-VF guarantee; an InfiniBand PF reports its active IPoIB rate. The
+attribute is omitted when the PF has no netdev, its link is down at discovery,
+or the speed cannot be read, and like `pfMTU` it is refreshed when the driver
+restarts.
 
 ### Filtering Criteria
 

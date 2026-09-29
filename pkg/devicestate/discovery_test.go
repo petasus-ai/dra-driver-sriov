@@ -75,6 +75,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(9000, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(10000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
@@ -105,6 +106,8 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev1.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypeVF)))
 			// The parent PF's MTU, which caps what the VF can carry
 			Expect(dev1.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(9000))))
+			// The parent PF's link speed in Mb/s, shared by its VFs
+			Expect(dev1.Attributes[consts.AttributePfLinkSpeedMbps].IntValue).To(Equal(ptr.To(int64(10000))))
 			// Compatibility attributes
 			Expect(dev1.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 
@@ -114,6 +117,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev2.Attributes[consts.AttributeVFID].IntValue).To(Equal(ptr.To(int64(1))))
 			Expect(dev2.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.2")))
 			Expect(dev2.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(9000))))
+			Expect(dev2.Attributes[consts.AttributePfLinkSpeedMbps].IntValue).To(Equal(ptr.To(int64(10000))))
 
 			// Check the PF entry: self-referential parent fields, no vfID
 			pf := devices["0000-01-00-0"]
@@ -127,6 +131,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(pf.Attributes[consts.AttributeMultusDeviceID].StringValue).To(Equal(ptr.To("0000:01:00.0")))
 			Expect(pf.Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
 			Expect(pf.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(9000))))
+			Expect(pf.Attributes[consts.AttributePfLinkSpeedMbps].IntValue).To(Equal(ptr.To(int64(10000))))
 			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributeVFID))
 		})
 
@@ -147,6 +152,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(0, fmt.Errorf("no mtu file"))
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
@@ -162,6 +168,42 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(devices["0000-01-00-0"].Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfMTU)))
 			// The rest of the netdev attributes are unaffected.
 			Expect(devices["0000-01-00-1"].Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
+		})
+
+		It("should leave pfLinkSpeedMbps out when the PF link is down", func() {
+			pciInfo := &pci.Info{
+				Devices: []*pci.Device{
+					{
+						Address: "0000:01:00.0",
+						Class:   &pcidb.Class{ID: "02"},
+						Vendor:  &pcidb.Vendor{ID: "15b3"},
+						Product: &pcidb.Product{ID: "101d"},
+					},
+				},
+			}
+			vfList := []host.VFInfo{{PciAddress: "0000:01:00.1", VFID: 0, DeviceID: "101e"}}
+
+			mockHost.EXPECT().PCI().Return(pciInfo, nil)
+			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
+			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
+			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(0, fmt.Errorf("link speed unknown (-1) for interface eth0"))
+			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
+			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
+			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
+			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
+			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
+
+			devices, err := DiscoverSriovDevices()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(2))
+			Expect(devices["0000-01-00-1"].Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfLinkSpeedMbps)))
+			Expect(devices["0000-01-00-0"].Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfLinkSpeedMbps)))
+			// The rest of the netdev attributes are unaffected.
+			Expect(devices["0000-01-00-1"].Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
+			Expect(devices["0000-01-00-1"].Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(1500))))
 		})
 
 		It("should discover multiple PFs with VFs", func() {
@@ -195,6 +237,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
@@ -204,6 +247,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:02:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:02:00.0").Return("eth1")
 			mockHost.EXPECT().GetNetDevMTU("eth1").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth1").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:02:00.0").Return(consts.EswitchModeSwitchdev)
 			mockHost.EXPECT().GetNumaNode("0000:02:00.0").Return("1", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:02:00.0").Return("pci0000:00", nil)
@@ -263,6 +307,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
@@ -300,6 +345,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
@@ -383,6 +429,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 				mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 				mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("ib0")
 				mockHost.EXPECT().GetNetDevMTU("ib0").Return(4092, nil)
+				mockHost.EXPECT().GetNetDevSpeed("ib0").Return(400000, nil)
 				mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeSwitchdev)
 				mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("1", nil)
 				mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
@@ -423,6 +470,8 @@ var _ = Describe("DiscoverSriovDevices", func() {
 				Expect(dev1.Attributes[consts.AttributeDeviceID].StringValue).To(Equal(ptr.To("1018")))
 				// An InfiniBand PF reports its IPoIB MTU
 				Expect(dev1.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(4092))))
+				// and its active IPoIB rate, 4X NDR
+				Expect(dev1.Attributes[consts.AttributePfLinkSpeedMbps].IntValue).To(Equal(ptr.To(int64(400000))))
 				Expect(dev1.Attributes[consts.AttributePFDeviceID].StringValue).To(Equal(ptr.To("1017")))
 				Expect(dev1.Attributes[consts.AttributePciAddress].StringValue).To(Equal(ptr.To("0000:01:00.1")))
 				Expect(dev1.Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("ib0")))
@@ -515,6 +564,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
@@ -562,8 +612,9 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(pf.Attributes[consts.AttributeNumVFs].IntValue).To(Equal(ptr.To(int64(0))))
 			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributePFName))
 			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributeVFID))
-			// No netdev, no MTU to read (and GetNetDevMTU is never called).
+			// No netdev, no MTU or link speed to read (and neither helper is called).
 			Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfMTU)))
+			Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfLinkSpeedMbps)))
 		})
 
 		It("should skip devices with invalid class ID", func() {
@@ -627,6 +678,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
@@ -661,6 +713,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
@@ -695,6 +748,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
 			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
 			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
 			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
 			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("", nil)
