@@ -6,7 +6,7 @@ require (
 	github.com/Mellanox/rdmamap v1.2.0
 	github.com/containerd/nri v0.12.3
 	github.com/containernetworking/cni v1.3.1
-	github.com/jaypipes/ghw v0.25.0
+	github.com/jaypipes/ghw v0.26.0
 	github.com/jaypipes/pcidb v1.1.1
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
 	github.com/k8snetworkplumbingwg/sriovnet v1.3.0
