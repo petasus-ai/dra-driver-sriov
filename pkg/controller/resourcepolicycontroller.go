@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -450,12 +451,15 @@ func (r *SriovResourcePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error
 	nodeMetadata := &metav1.PartialObjectMetadata{}
 	nodeMetadata.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Node"))
 
+	// The namespace predicate goes on the namespaced watches only, never
+	// through WithEventFilter: that applies to every watch, and a Node is
+	// cluster-scoped (empty namespace), so it would drop every node event.
+	// nodeEventHandler already filters on this node's name.
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&sriovdrav1alpha1.SriovResourcePolicy{}).
+		For(&sriovdrav1alpha1.SriovResourcePolicy{}, builder.WithPredicates(namespacePredicate)).
 		Watches(nodeMetadata, nodeEventHandler).
-		Watches(&sriovdrav1alpha1.SriovResourcePolicy{}, delayedEventHandler).
-		Watches(&sriovdrav1alpha1.DeviceAttributes{}, delayedEventHandler).
-		WithEventFilter(namespacePredicate).
+		Watches(&sriovdrav1alpha1.SriovResourcePolicy{}, delayedEventHandler, builder.WithPredicates(namespacePredicate)).
+		Watches(&sriovdrav1alpha1.DeviceAttributes{}, delayedEventHandler, builder.WithPredicates(namespacePredicate)).
 		WatchesRawSource(source.Channel(eventChan, &handler.EnqueueRequestForObject{})).
 		Complete(r)
 }

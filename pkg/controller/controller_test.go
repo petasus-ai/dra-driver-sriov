@@ -259,6 +259,64 @@ var _ = Describe("SriovResourcePolicyReconciler (envtest)", func() {
 		}, 5*time.Second, 200*time.Millisecond).Should(BeTrue())
 	})
 
+	It("should re-evaluate policies when this node's labels change", func(ctx SpecContext) {
+		// Start from a clean namespace so only the profile-scoped policy
+		// below decides what the node advertises.
+		Expect(k8sClient.DeleteAllOf(ctx, &sriovdrav1alpha1.SriovResourcePolicy{},
+			client.InNamespace("dra-driver-sriov"))).To(Succeed())
+		Eventually(func() int {
+			list := &sriovdrav1alpha1.SriovResourcePolicyList{}
+			if err := k8sClient.List(ctx, list, client.InNamespace("dra-driver-sriov")); err != nil {
+				return -1
+			}
+			return len(list.Items)
+		}, 5*time.Second, 100*time.Millisecond).Should(Equal(0))
+
+		setProfileLabel := func(ctx context.Context, value string) {
+			node := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "test-node"}, node)).To(Succeed())
+			patch := client.MergeFrom(node.DeepCopy())
+			if value == "" {
+				delete(node.Labels, "petasus.io/profile")
+			} else {
+				node.Labels["petasus.io/profile"] = value
+			}
+			Expect(k8sClient.Patch(ctx, node, patch)).To(Succeed())
+		}
+		DeferCleanup(func(ctx SpecContext) {
+			setProfileLabel(ctx, "")
+			rp := &sriovdrav1alpha1.SriovResourcePolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "rp-profile", Namespace: "dra-driver-sriov"},
+			}
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, rp))).To(Succeed())
+		})
+
+		policy := &sriovdrav1alpha1.SriovResourcePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "rp-profile", Namespace: "dra-driver-sriov"},
+			Spec: sriovdrav1alpha1.SriovResourcePolicySpec{
+				NodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key: "petasus.io/profile", Operator: corev1.NodeSelectorOpIn, Values: []string{"gpu-b200"},
+					}},
+				}}},
+				Configs: []sriovdrav1alpha1.Config{{}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+
+		// The node does not carry the profile yet: nothing is advertised.
+		Eventually(func() int { return len(applied) }, 5*time.Second, 200*time.Millisecond).Should(Equal(0))
+		Consistently(func() int { return len(applied) }, 1500*time.Millisecond, 200*time.Millisecond).Should(Equal(0))
+
+		// Labeling the node is the only change: no policy or DeviceAttributes
+		// event follows, so only the Node watch can trigger the reconcile.
+		setProfileLabel(ctx, "gpu-b200")
+		Eventually(func() int { return len(applied) }, 5*time.Second, 200*time.Millisecond).Should(BeNumerically(">=", 1))
+
+		setProfileLabel(ctx, "")
+		Eventually(func() int { return len(applied) }, 5*time.Second, 200*time.Millisecond).Should(Equal(0))
+	})
+
 	It("should requeue when node is missing (direct Reconcile call)", func(ctx SpecContext) {
 		bogus := controller.NewSriovResourcePolicyReconciler(k8sClient, "missing-node", "dra-driver-sriov", nil)
 		result, err := bogus.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "irrelevant", Namespace: "dra-driver-sriov"}})
