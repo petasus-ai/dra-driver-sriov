@@ -46,9 +46,11 @@ jobs:
           username: edgestack
           password: ${{ secrets.QUAY_CI_BOT_SECRET }}
 
-      # Tag scheme: release tags push vX.Y.Z; main pushes latest plus the
-      # bare 7-char short SHA. chart-push.yml stamps chart appVersions with
-      # `git rev-parse --short=7`, so the short-SHA tag format must not change.
+      # Tag scheme: release tags push vX.Y.Z; main pushes dev (the dev channel
+      # of the Petasus versioning plan), latest (still pulled by edgespray
+      # until the first release) and the bare 7-char short SHA. chart-push.yml
+      # stamps chart appVersions with `git rev-parse --short=7`, so the
+      # short-SHA tag format must not change.
       - name: Docker meta
         id: docker_meta
         uses: docker/metadata-action@v6
@@ -56,6 +58,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
+            type=raw,value=dev,enable={{is_default_branch}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=,format=short
 
