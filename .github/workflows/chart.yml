@@ -1,0 +1,35 @@
+name: Chart
+
+# Publishes the chart to petasus-ai/edgestack-helm when a push to main changes it, with
+# the shared action of petasus-ai/.github: 0.0.0-dev to the dev channel, and, while sites
+# on edgespray main or master still install it, 0.1.0 replaced on master as before.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deployments/helm/**'
+  workflow_dispatch: {}
+
+concurrency:
+  group: chart
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish 0.0.0-dev to the dev channel
+        uses: petasus-ai/.github/actions/publish-chart@f66755de01cb62bb6f294e1f0303e54b45c323df
+        with:
+          chart: deployments/helm/dra-driver-sriov
+          channel: dev
+          token: ${{ secrets.MY_TOKEN }}
+      - name: Replace 0.1.0 on master
+        uses: petasus-ai/.github/actions/publish-chart@f66755de01cb62bb6f294e1f0303e54b45c323df
+        with:
+          chart: deployments/helm/dra-driver-sriov
+          channel: stable
+          version: "0.1.0"
+          replace: "true"
+          token: ${{ secrets.MY_TOKEN }}
