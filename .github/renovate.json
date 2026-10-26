@@ -1,95 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":configMigration"],
-  "pinDigests": false,
-  "timezone": "Asia/Seoul",
-  "labels": ["dependencies"],
-  "osvVulnerabilityAlerts": true,
-  "minimumReleaseAge": "3 days",
+  "extends": ["github>petasus-ai/.github//renovate/default"],
   "prCreation": "immediate",
-  "prConcurrentLimit": 5,
-  "platformAutomerge": true,
   "packageRules": [
-    {
-      "description": "Automerge minor/patch updates via platform auto-merge.",
-      "matchUpdateTypes": ["minor", "patch"],
-      "automerge": true
-    },
-    {
-      "description": "Major updates require manual review",
-      "matchUpdateTypes": ["major"],
-      "automerge": false
-    },
-    {
-      "description": "Group all GitHub Actions updates into one PR",
-      "matchManagers": ["github-actions"],
-      "groupName": "github actions dependencies"
-    },
-    {
-      "description": "Never pin to SHA digests — not container images (Dockerfile, Helm values, manifests) and not GitHub Actions. Tag-level updates are the granularity we want; digest churn is noise. This rule guards against a preset (e.g. config:best-practices) re-enabling it.",
-      "matchDatasources": ["docker", "github-tags", "github-releases"],
-      "pinDigests": false
-    },
-    {
-      "matchDepTypes": ["action"],
-      "pinDigests": false
-    },
-    {
-      "description": "The Kubernetes staging modules move as a set — a client-go that disagrees with apimachinery does not build — so they share one PR. Minor bumps can move the resource.k8s.io API surface the driver publishes against, so they wait for review; patches automerge.",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": [
-        "k8s.io/api",
-        "k8s.io/apimachinery",
-        "k8s.io/apiserver",
-        "k8s.io/client-go",
-        "k8s.io/component-base",
-        "k8s.io/cri-api",
-        "k8s.io/dynamic-resource-allocation",
-        "k8s.io/kubelet",
-        "k8s.io/kubernetes"
-      ],
-      "groupName": "kubernetes staging modules"
-    },
-    {
-      "matchManagers": ["gomod"],
-      "matchPackageNames": [
-        "k8s.io/api",
-        "k8s.io/apimachinery",
-        "k8s.io/apiserver",
-        "k8s.io/client-go",
-        "k8s.io/component-base",
-        "k8s.io/cri-api",
-        "k8s.io/dynamic-resource-allocation",
-        "k8s.io/kubelet",
-        "k8s.io/kubernetes"
-      ],
-      "matchUpdateTypes": ["major", "minor"],
-      "automerge": false
-    },
-    {
-      "description": "The Go toolchain in go.mod and the golang image in the Dockerfile move together, or the image builds with a toolchain the module does not declare.",
-      "matchManagers": ["gomod", "dockerfile"],
-      "matchPackageNames": ["go", "golang"],
-      "groupName": "go toolchain"
-    },
     {
       "description": "netlink is tracked at an untagged commit because sriovnet requires a post-v1.3.1 pseudo-version. The version we need is dictated by sriovnet, so skip standalone digest bumps; the sriovnet update PR pulls the matching netlink commit via go mod tidy.",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["github.com/vishvananda/netlink"],
       "matchUpdateTypes": ["digest"],
       "enabled": false
-    }
-  ],
-  "customManagers": [
-    {
-      "description": "The Helm version azure/setup-helm installs. It is a tool version rather than a dependency, so the github-actions manager cannot see it.",
-      "customType": "regex",
-      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
-      "matchStrings": [
-        "azure/setup-helm@[^\\n]*\\n(?:[^\\n]*\\n)*?\\s*version:\\s*(?<currentValue>v[\\d.]+)"
-      ],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "helm/helm"
     }
   ]
 }
