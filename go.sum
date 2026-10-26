@@ -20,6 +20,8 @@ github.com/containerd/nri v0.12.2 h1:piA7h2QUm0m3+e994qWFPYwnoXXwAphwDc1Ydx1eWi4
 github.com/containerd/nri v0.12.2/go.mod h1:o6Pz0I/iks9g2KlH3WdgvFtc9rB7k0aeoZCAH01xOGk=
 github.com/containerd/nri v0.12.3 h1:pVZwZCe0Z+d2WmScp51VTO3OmeuOZFoDGInX2n04e70=
 github.com/containerd/nri v0.12.3/go.mod h1:MrNpHL2YtNnf09t+D6NacWeN1kaHmy/YCm0+w4VHKL0=
+github.com/containerd/nri v0.12.4 h1:eRC+dkrcU6Ij4+O8lqa2U1YVs64vgPQKK061BxHGB8s=
+github.com/containerd/nri v0.12.4/go.mod h1:KPI0bbRZeqYq4rRWNWQztAR1150JF937MGe5b45Zgrk=
 github.com/containerd/ttrpc v1.2.9 h1:ha0ak962T0s3CA/RoZ6S6xiWZQF24GrBaEpiGX1uihg=
 github.com/containerd/ttrpc v1.2.9/go.mod h1:jjtQRwXm4DL3KsHKW8vDiUOV6wO0hi6IPhmJhxU7aEs=
 github.com/containernetworking/cni v1.3.0 h1:v6EpN8RznAZj9765HhXQrtXgX+ECGebEYEmnuFjskwo=
