@@ -6,7 +6,7 @@ on:
     tags: ['v*']
 
 # Serialize pushes per ref so overlapping main builds do not race on the
-# :latest tag. Tag builds are never cancelled.
+# :dev tag. Tag builds are never cancelled.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
@@ -26,43 +26,76 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # The release tag guard and the newest-release check read the history.
+          fetch-depth: 0
 
       - name: Set short SHA
         id: vars
         run: echo "short_sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
+      # A release tag is vX.Y.Z (or vX.Y.Z-rc.N) on release-X.Y, the rule the GitLab
+      # components follow too.
+      - name: Guard the release tag
+        if: github.ref_type == 'tag'
+        uses: petasus-ai/.github/actions/guard-release-tag@30599a61231e382146695a0bbcaff37555bdb533
+
+      # A published release is never built again; a release takes latest only when it
+      # is the newest final release.
+      - name: Plan the release
+        id: plan
+        run: |
+          set -euo pipefail
+          published=false
+          newest=false
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if docker buildx imagetools inspect "$IMAGE_NAME:$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              published=true
+              echo "::notice::$IMAGE_NAME:$GITHUB_REF_NAME is already published; a release is never rebuilt."
+            fi
+            last=$(git tag -l 'v*' | { grep -Ex 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' || true; } | sort -V | tail -n 1)
+            [ "$last" = "$GITHUB_REF_NAME" ] && newest=true
+          fi
+          echo "published=$published newest=$newest"
+          { echo "published=$published"; echo "newest=$newest"; } >> "$GITHUB_OUTPUT"
+
       # QEMU is only needed for the non-native final stage (yum install);
       # the Go build stage cross-compiles on the native build platform.
       - name: Set up QEMU
+        if: steps.plan.outputs.published != 'true'
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
+        if: steps.plan.outputs.published != 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to Quay
+        if: steps.plan.outputs.published != 'true'
         uses: docker/login-action@v4
         with:
           registry: quay.io
           username: edgestack
           password: ${{ secrets.QUAY_CI_BOT_SECRET }}
 
-      # Tag scheme: release tags push vX.Y.Z; main pushes dev (the dev channel
-      # of the Petasus versioning plan), latest (still pulled by edgespray
-      # until the first release) and the bare 7-char short SHA. chart-push.yml
-      # stamps chart appVersions with `git rev-parse --short=7`, so the
-      # short-SHA tag format must not change.
+      # Tag scheme: a release tag pushes vX.Y.Z, and latest when it is the newest
+      # final release; main pushes dev (the dev channel of the Petasus versioning
+      # plan) and the bare 7-char short SHA.
       - name: Docker meta
+        if: steps.plan.outputs.published != 'true'
         id: docker_meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=tag
+            type=raw,value=latest,enable=${{ steps.plan.outputs.newest == 'true' }}
             type=raw,value=dev,enable={{is_default_branch}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=,format=short
+            type=sha,prefix=,format=short,enable=${{ github.ref_type != 'tag' }}
 
       - name: Build and push container image
+        if: steps.plan.outputs.published != 'true'
         uses: docker/build-push-action@v7
         with:
           context: .

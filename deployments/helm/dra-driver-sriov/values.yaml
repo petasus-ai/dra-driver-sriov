@@ -12,12 +12,11 @@ allowDefaultNamespace: false
 imagePullSecrets: []
 image:
   repository: quay.io/edgestack/dra-driver-sriov
-  pullPolicy: Always
-  # Overrides the image tag whose default is the chart appVersion.
-  # Set explicitly to "latest" so deployments always pull the newest
-  # image, even from published charts whose appVersion is stamped with
-  # a commit SHA at packaging time.
-  tag: "latest"
+  # A release never changes; set Always when running the moving dev tag.
+  pullPolicy: IfNotPresent
+  # Empty: the chart's appVersion, the release it was published with (dev on the
+  # dev channel). edgespray passes the tag and the pull policy it installs.
+  tag: ""
 
 serviceAccount:
   # Specifies whether a service account should be created

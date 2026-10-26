@@ -1,35 +1,46 @@
 name: Chart
 
-# Publishes the chart to petasus-ai/edgestack-helm when a push to main changes it, with
-# the shared action of petasus-ai/.github: 0.0.0-dev to the dev channel, and, while sites
-# on edgespray main or master still install it, 0.1.0 replaced on master as before.
+# Publishes the chart to petasus-ai/edgestack-helm with the shared actions of
+# petasus-ai/.github: a push to main that changes it replaces 0.0.0-dev on the dev
+# channel, and a tag vX.Y.Z on release-X.Y publishes X.Y.Z on the stable channel, with
+# appVersion vX.Y.Z for the image of the same tag. The first release, v3.5.0, starts the
+# chart's numbers over from the image's; 0.1.0, which main republished until then, stays
+# as it was.
 on:
   push:
     branches: [main]
     paths:
       - 'deployments/helm/**'
+    tags: ["v*"]
   workflow_dispatch: {}
 
 concurrency:
-  group: chart
+  group: chart-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  dev:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Publish 0.0.0-dev to the dev channel
-        uses: petasus-ai/.github/actions/publish-chart@f66755de01cb62bb6f294e1f0303e54b45c323df
+        uses: petasus-ai/.github/actions/publish-chart@1635454a4fc43d16be6bdaae33feb3204ef8c922
         with:
           chart: deployments/helm/dra-driver-sriov
           channel: dev
           token: ${{ secrets.MY_TOKEN }}
-      - name: Replace 0.1.0 on master
-        uses: petasus-ai/.github/actions/publish-chart@f66755de01cb62bb6f294e1f0303e54b45c323df
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: petasus-ai/.github/actions/guard-release-tag@30599a61231e382146695a0bbcaff37555bdb533
+      - name: Publish the release to the stable channel
+        uses: petasus-ai/.github/actions/publish-chart@1635454a4fc43d16be6bdaae33feb3204ef8c922
         with:
           chart: deployments/helm/dra-driver-sriov
           channel: stable
-          version: "0.1.0"
-          replace: "true"
+          version: ${{ github.ref_name }}
           token: ${{ secrets.MY_TOKEN }}
