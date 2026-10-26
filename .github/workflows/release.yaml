@@ -110,3 +110,18 @@ jobs:
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || steps.vars.outputs.short_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  github-release:
+    name: GitHub release
+    needs: [build-and-push]
+    if: always() && github.ref_type == 'tag' && needs.build-and-push.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: petasus-ai/.github/actions/github-release@075f162d2915e6506467a03465a6c25bf971f8a1
+        with:
+          token: ${{ github.token }}
