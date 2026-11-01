@@ -187,6 +187,7 @@ presence. Attribute mapping for a PF entry:
 | `PFName` | netdev name, or omitted when netdev-less |
 | `vfID` | omitted (no meaningful value; consumers must guard with `"vfID" in attributes`) |
 | `EswitchMode`, `linkType`, `pcieRoot`, `dra.net/numaNode` | as for VFs |
+| `resource.kubernetes.io/numaNode` | as for VFs; omitted when the PF has no NUMA affinity (`-1`) |
 | `rdmaCapable` | per `VerifyRDMACapability(pf)`; `false` for a vfio-bound PF (no kernel RDMA device exists) — documented, not special-cased |
 | `deviceType` | `"pf"` |
 

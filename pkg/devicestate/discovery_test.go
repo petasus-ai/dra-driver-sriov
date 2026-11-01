@@ -108,6 +108,8 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev1.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(9000))))
 			// The parent PF's link speed in Mb/s, shared by its VFs
 			Expect(dev1.Attributes[consts.AttributePfLinkSpeedMbps].IntValue).To(Equal(ptr.To(int64(10000))))
+			// Standard NUMA node, shared with other DRA drivers
+			Expect(dev1.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 			// Compatibility attributes
 			Expect(dev1.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 
@@ -132,7 +134,45 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(pf.Attributes[consts.AttributePFName].StringValue).To(Equal(ptr.To("eth0")))
 			Expect(pf.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(9000))))
 			Expect(pf.Attributes[consts.AttributePfLinkSpeedMbps].IntValue).To(Equal(ptr.To(int64(10000))))
+			Expect(pf.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 			Expect(pf.Attributes).NotTo(HaveKey(consts.AttributeVFID))
+		})
+
+		It("should leave the standard numaNode out when the device has no NUMA affinity", func() {
+			pciInfo := &pci.Info{
+				Devices: []*pci.Device{
+					{
+						Address: "0000:01:00.0",
+						Class:   &pcidb.Class{ID: "02"},
+						Vendor:  &pcidb.Vendor{ID: "15b3"},
+						Product: &pcidb.Product{ID: "101d"},
+					},
+				},
+			}
+			vfList := []host.VFInfo{{PciAddress: "0000:01:00.1", VFID: 0, DeviceID: "101e"}}
+
+			mockHost.EXPECT().PCI().Return(pciInfo, nil)
+			mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
+			mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
+			mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+			mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
+			mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
+			mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("-1", nil)
+			mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
+			mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
+			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
+			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
+
+			devices, err := DiscoverSriovDevices()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(devices).To(HaveLen(2))
+			for _, name := range []string{"0000-01-00-1", "0000-01-00-0"} {
+				// -1 would match every other NUMA-less device in a matchAttribute constraint.
+				Expect(devices[name].Attributes).NotTo(HaveKey(consts.AttributeStandardNUMANode))
+				// The compatibility attribute keeps reporting -1.
+				Expect(devices[name].Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(-1))))
+			}
 		})
 
 		It("should leave pfMTU out when the PF MTU cannot be read", func() {
@@ -272,6 +312,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev1.Attributes[consts.AttributePCIeRoot].StringValue).To(Equal(ptr.To("pci0000:00")))
 			Expect(dev1.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.1")))
 			Expect(dev1.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeEthernet)))
+			Expect(dev1.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 			// Compatibility attributes
 			Expect(dev1.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 
@@ -283,6 +324,7 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev2.Attributes[consts.AttributePCIeRoot].StringValue).To(Equal(ptr.To("pci0000:00")))
 			Expect(dev2.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:02:00.1")))
 			Expect(dev2.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeInfiniband)))
+			Expect(dev2.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(1))))
 			// Compatibility attributes
 			Expect(dev2.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(1))))
 		})

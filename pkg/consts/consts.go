@@ -103,6 +103,11 @@ const (
 var (
 	// AttributePCIeRoot identifies the PCIe root complex of the device
 	AttributePCIeRoot resourceapi.QualifiedName = deviceattribute.StandardDeviceAttributePCIeRoot
+	// AttributeStandardNUMANode is the device's NUMA node under the name other
+	// DRA drivers (dra-driver-cpu, dra-driver-xpu) publish too, so that a
+	// claim can match a VF's NUMA node to theirs. Unlike AttributeNUMANode it
+	// is omitted when the kernel reports no NUMA affinity (-1).
+	AttributeStandardNUMANode resourceapi.QualifiedName = deviceattribute.StandardDeviceAttributeNUMANode
 )
 
 // ReservedAttributes is the set of attribute keys populated by driver discovery
@@ -123,6 +128,7 @@ var ReservedAttributes = map[resourceapi.QualifiedName]bool{
 	AttributeLinkType:           true,
 	AttributeRDMACapable:        true,
 	AttributeNUMANode:           true,
+	AttributeStandardNUMANode:   true,
 	AttributeDeviceType:         true,
 	AttributeNumVFs:             true,
 	AttributePfMTU:              true,

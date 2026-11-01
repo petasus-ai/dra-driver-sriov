@@ -63,6 +63,7 @@ var _ = Describe("Consts", func() {
 			// These attributes should use the upstream standard prefix
 			Expect(string(consts.AttributePCIeRoot)).To(Equal(deviceattribute.StandardDeviceAttributePrefix + "pcieRoot"))
 			Expect(consts.AttributeStandardPciAddress).To(Equal(deviceattribute.StandardDeviceAttributePrefix + "pciBusID"))
+			Expect(string(consts.AttributeStandardNUMANode)).To(Equal(deviceattribute.StandardDeviceAttributePrefix + "numaNode"))
 		})
 
 		It("should have compatibility attributes", func() {
@@ -88,6 +89,7 @@ var _ = Describe("Consts", func() {
 				consts.AttributeLinkType,
 				consts.AttributeRDMACapable,
 				consts.AttributeNUMANode,
+				string(consts.AttributeStandardNUMANode),
 				consts.AttributeDeviceType,
 				consts.AttributeNumVFs,
 				consts.AttributePfMTU,

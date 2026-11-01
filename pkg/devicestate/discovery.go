@@ -255,6 +255,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 					IntValue: numaNodeIntPtr,
 				},
 			}
+			addStandardNUMANode(attributes, numaNodeIntPtr)
 			addPFNetdevAttributes(attributes, pfInfo)
 
 			resourceList[deviceName] = resourceapi.Device{
@@ -322,6 +323,7 @@ func buildPFDevice(pfInfo PFInfo, numVFs int, numaNode *int64) resourceapi.Devic
 			IntValue: numaNode,
 		},
 	}
+	addStandardNUMANode(attributes, numaNode)
 	addPFNetdevAttributes(attributes, pfInfo)
 
 	return resourceapi.Device{
@@ -349,6 +351,19 @@ func addPFNetdevAttributes(attributes map[resourceapi.QualifiedName]resourceapi.
 		attributes[consts.AttributePfLinkSpeedMbps] = resourceapi.DeviceAttribute{
 			IntValue: ptr.To(int64(pfInfo.LinkSpeedMbps)),
 		}
+	}
+}
+
+// addStandardNUMANode adds resource.kubernetes.io/numaNode to a VF or PF
+// entry. A device with no NUMA affinity (-1) gets none: in a matchAttribute
+// constraint the value would match every other NUMA-less device. The
+// compatibility dra.net/numaNode keeps reporting -1.
+func addStandardNUMANode(attributes map[resourceapi.QualifiedName]resourceapi.DeviceAttribute, numaNode *int64) {
+	if numaNode == nil || *numaNode < 0 {
+		return
+	}
+	attributes[consts.AttributeStandardNUMANode] = resourceapi.DeviceAttribute{
+		IntValue: ptr.To(*numaNode),
 	}
 }
 
