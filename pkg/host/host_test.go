@@ -417,6 +417,113 @@ var _ = Describe("Host", func() {
 				Expect(speed).To(BeZero())
 			})
 		})
+
+		Context("GetUplinkVlans", func() {
+			It("should read the bond of a VF-LAG PF as the uplink of a trunk", func() {
+				fs.Dirs = []string{"sys/class/net/br-bond0/bridge"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/br-bond0/bridge/vlan_filtering": []byte("1\n"),
+				}
+				tearDown = fs.Use()
+				hUplink := host.NewHostForTest(&host.FakeNetlinkProvider{
+					LinkMasters: map[string]host.FakeLinkMaster{
+						"ens1f1np1": {Name: "bond0", Kind: "bond"},
+						"bond0":     {Name: "br-bond0", Kind: "bridge"},
+					},
+					BridgePortVlans: map[string][]host.BridgeVlan{
+						"bond0": {{Vid: 2201}, {Vid: 2200}},
+					},
+				})
+
+				uplink, err := hUplink.GetUplinkVlans("ens1f1np1")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(uplink).To(Equal(&host.UplinkVlans{
+					Uplink:        "bond0",
+					Bridge:        "br-bond0",
+					VlanFiltering: true,
+					Vlans:         []int{2200, 2201},
+				}))
+			})
+
+			It("should read a PF on the bridge itself and its untagged VLAN", func() {
+				fs.Dirs = []string{"sys/class/net/br0/bridge"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/br0/bridge/vlan_filtering": []byte("1\n"),
+				}
+				tearDown = fs.Use()
+				hUplink := host.NewHostForTest(&host.FakeNetlinkProvider{
+					LinkMasters: map[string]host.FakeLinkMaster{
+						"eth0": {Name: "br0", Kind: "bridge"},
+					},
+					BridgePortVlans: map[string][]host.BridgeVlan{
+						"eth0": {{Vid: 1, Untagged: true}},
+					},
+				})
+
+				uplink, err := hUplink.GetUplinkVlans("eth0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(uplink.Uplink).To(Equal("eth0"))
+				Expect(uplink.UntaggedVlan).To(Equal(1))
+				Expect(uplink.Vlans).To(Equal([]int{1}))
+			})
+
+			It("should not read VLANs on a bridge without vlan_filtering", func() {
+				fs.Dirs = []string{"sys/class/net/br-bond0/bridge"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/br-bond0/bridge/vlan_filtering": []byte("0\n"),
+				}
+				tearDown = fs.Use()
+				hUplink := host.NewHostForTest(&host.FakeNetlinkProvider{
+					LinkMasters: map[string]host.FakeLinkMaster{
+						"eth0":  {Name: "bond0", Kind: "bond"},
+						"bond0": {Name: "br-bond0", Kind: "bridge"},
+					},
+					BridgePortVlansError: fmt.Errorf("must not be read"),
+				})
+
+				uplink, err := hUplink.GetUplinkVlans("eth0")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(uplink.VlanFiltering).To(BeFalse())
+				Expect(uplink.Vlans).To(BeEmpty())
+			})
+
+			It("should return error when the uplink is no bridge port", func() {
+				tearDown = fs.Use()
+				hUplink := host.NewHostForTest(&host.FakeNetlinkProvider{
+					LinkMasters: map[string]host.FakeLinkMaster{
+						"eth0": {Name: "bond0", Kind: "bond"},
+					},
+				})
+
+				uplink, err := hUplink.GetUplinkVlans("eth0")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("uplink bond0 is not a bridge port"))
+				Expect(uplink).To(BeNil())
+
+				uplink, err = hUplink.GetUplinkVlans("")
+				Expect(err).To(HaveOccurred())
+				Expect(uplink).To(BeNil())
+			})
+
+			It("should return error when the uplink VLANs cannot be read", func() {
+				fs.Dirs = []string{"sys/class/net/br0/bridge"}
+				fs.Files = map[string][]byte{
+					"sys/class/net/br0/bridge/vlan_filtering": []byte("1\n"),
+				}
+				tearDown = fs.Use()
+				hUplink := host.NewHostForTest(&host.FakeNetlinkProvider{
+					LinkMasters: map[string]host.FakeLinkMaster{
+						"eth0": {Name: "br0", Kind: "bridge"},
+					},
+					BridgePortVlansError: fmt.Errorf("netlink dump failed"),
+				})
+
+				uplink, err := hUplink.GetUplinkVlans("eth0")
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failed to read the VLANs of uplink eth0"))
+				Expect(uplink).To(BeNil())
+			})
+		})
 	})
 
 	Describe("Topology Functions", func() {

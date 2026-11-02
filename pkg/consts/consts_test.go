@@ -44,6 +44,9 @@ var _ = Describe("Consts", func() {
 				"pfPciAddress": consts.DriverName + "/pfPciAddress",
 				"pfMTU":        consts.DriverName + "/pfMTU",
 				"pfLinkSpeed":  consts.DriverName + "/pfLinkSpeedMbps",
+				"uplinkFilter": consts.DriverName + "/uplinkVlanFiltering",
+				"uplinkUntag":  consts.DriverName + "/uplinkUntaggedVlan",
+				"uplinkVlans":  consts.DriverName + "/uplinkVlans",
 			}
 
 			Expect(consts.AttributePciAddress).To(Equal(expectedAttributes["pciAddress"]))
@@ -57,6 +60,9 @@ var _ = Describe("Consts", func() {
 			Expect(consts.AttributePfPciAddress).To(Equal(expectedAttributes["pfPciAddress"]))
 			Expect(consts.AttributePfMTU).To(Equal(expectedAttributes["pfMTU"]))
 			Expect(consts.AttributePfLinkSpeedMbps).To(Equal(expectedAttributes["pfLinkSpeed"]))
+			Expect(consts.AttributeUplinkVlanFiltering).To(Equal(expectedAttributes["uplinkFilter"]))
+			Expect(consts.AttributeUplinkUntaggedVlan).To(Equal(expectedAttributes["uplinkUntag"]))
+			Expect(consts.AttributeUplinkVlans).To(Equal(expectedAttributes["uplinkVlans"]))
 		})
 
 		It("should have correct attributes with standard prefix", func() {
@@ -94,6 +100,9 @@ var _ = Describe("Consts", func() {
 				consts.AttributeNumVFs,
 				consts.AttributePfMTU,
 				consts.AttributePfLinkSpeedMbps,
+				consts.AttributeUplinkVlanFiltering,
+				consts.AttributeUplinkUntaggedVlan,
+				consts.AttributeUplinkVlans,
 			}
 
 			Expect(consts.ReservedAttributes).To(HaveLen(len(expectedReserved)))

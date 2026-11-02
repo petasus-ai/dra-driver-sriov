@@ -325,6 +325,28 @@ attribute is omitted when the PF has no netdev, its link is down at discovery,
 or the speed cannot be read, and like `pfMTU` it is refreshed when the driver
 restarts.
 
+A VF of a switchdev PF also says which VLANs it can be put on. Its
+representor sits on a bridge whose only way out is the uplink port, the PF or
+the bond it is enslaved to (mlx5 VF-LAG), and sriov-vfio-cni only accepts a
+network VLAN that uplink carries:
+
+- `sriovnetwork.k8snetworkplumbingwg.io/uplinkVlanFiltering` (bool): the
+  bridge's `vlan_filtering`. A bridge without it takes no network VLAN.
+- `sriovnetwork.k8snetworkplumbingwg.io/uplinkUntaggedVlan` (int): with
+  `vlan_filtering`, the VLAN the uplink carries untagged, which a network
+  without a VLAN lands on. Omitted for a pure trunk, which such a network
+  cannot use.
+- `sriovnetwork.k8snetworkplumbingwg.io/uplinkVlans` (string): with
+  `vlan_filtering`, every VLAN the uplink carries as comma-separated IDs and
+  ranges, e.g. `2200-2201,3000`. Omitted when the uplink carries none or the
+  list exceeds the 64 characters of a DRA attribute string.
+
+The three are left out of PF entries, of VFs of a legacy-mode PF (the NIC tags
+the VF itself and takes any VLAN), of InfiniBand VFs (handed through with no
+VLAN) and of VFs whose PF is not a bridge port yet.
+They are read at discovery, so uplink VLANs re-provisioned later show up after
+the driver restarts.
+
 ### Filtering Criteria
 
 The resource filtering system supports multiple filtering criteria that can be combined:

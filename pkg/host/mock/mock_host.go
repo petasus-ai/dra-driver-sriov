@@ -246,6 +246,21 @@ func (mr *MockInterfaceMockRecorder) GetRDMADevicesForPCI(pciAddr any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRDMADevicesForPCI", reflect.TypeOf((*MockInterface)(nil).GetRDMADevicesForPCI), pciAddr)
 }
 
+// GetUplinkVlans mocks base method.
+func (m *MockInterface) GetUplinkVlans(pfName string) (*host.UplinkVlans, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUplinkVlans", pfName)
+	ret0, _ := ret[0].(*host.UplinkVlans)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUplinkVlans indicates an expected call of GetUplinkVlans.
+func (mr *MockInterfaceMockRecorder) GetUplinkVlans(pfName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUplinkVlans", reflect.TypeOf((*MockInterface)(nil).GetUplinkVlans), pfName)
+}
+
 // GetVFIODeviceFile mocks base method.
 func (m *MockInterface) GetVFIODeviceFile(pciAddress string) (string, string, error) {
 	m.ctrl.T.Helper()

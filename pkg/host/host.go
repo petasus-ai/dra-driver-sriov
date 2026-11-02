@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,6 +74,26 @@ type VFInfo struct {
 	DeviceID   string
 }
 
+// UplinkVlans is what the uplink of a switchdev PF carries. Its VFs reach the
+// fabric through their representors on a bridge, whose only way out is the
+// uplink port: the PF itself, or the bond it is enslaved to (mlx5 VF-LAG).
+// sriov-vfio-cni puts a representor only on a VLAN this port carries.
+type UplinkVlans struct {
+	// Uplink is the bridge port: the PF or its bond.
+	Uplink string
+	// Bridge is the bridge the uplink is a port of.
+	Bridge string
+	// VlanFiltering is the bridge's vlan_filtering. Without it the bridge
+	// forwards frames as they come and takes no VLAN at all.
+	VlanFiltering bool
+	// UntaggedVlan is the VLAN the uplink carries untagged (its PVID, egress
+	// untagged), 0 when it has none. Only read with VlanFiltering.
+	UntaggedVlan int
+	// Vlans is every VLAN the uplink is a member of, tagged or untagged, in
+	// ascending order. Only read with VlanFiltering.
+	Vlans []int
+}
+
 // Interface defines the unified interface for all host system operations.
 // This interface allows for easy mocking in unit tests by implementing mock versions
 // of all the host-related methods.
@@ -93,6 +114,7 @@ type Interface interface {
 	GetLinkType(pciAddr string) (string, error)
 	GetNetDevMTU(ifName string) (int, error)
 	GetNetDevSpeed(ifName string) (int, error)
+	GetUplinkVlans(pfName string) (*UplinkVlans, error)
 
 	// Topology functions
 	GetNumaNode(pciAddress string) (string, error)
@@ -385,6 +407,61 @@ func (h *Host) GetNetDevSpeed(ifName string) (int, error) {
 	}
 
 	return speed, nil
+}
+
+// GetUplinkVlans returns what the uplink of a switchdev PF carries. The
+// uplink is found the way sriov-vfio-cni finds it: the PF's bond when the PF
+// is enslaved to one, else the PF; it has to be a bridge port. The bridge's
+// vlan_filtering is read from /sys/class/net/<bridge>/bridge/vlan_filtering,
+// the uplink's VLAN membership from netlink.
+func (h *Host) GetUplinkVlans(pfName string) (*UplinkVlans, error) {
+	if pfName == "" {
+		return nil, fmt.Errorf("no interface name to read the uplink of")
+	}
+
+	uplink := pfName
+	master, kind, err := h.netlinkProvider.GetLinkMaster(pfName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the master of %s: %w", pfName, err)
+	}
+	if kind == "bond" {
+		uplink = master
+		master, kind, err = h.netlinkProvider.GetLinkMaster(uplink)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read the master of %s: %w", uplink, err)
+		}
+	}
+	if kind != "bridge" {
+		return nil, fmt.Errorf("uplink %s is not a bridge port", uplink)
+	}
+
+	filteringPath := buildSysPath(fmt.Sprintf("/sys/class/net/%s/bridge/vlan_filtering", master))
+	content, err := os.ReadFile(filteringPath) /* #nosec G304 */
+	if err != nil {
+		return nil, fmt.Errorf("failed to read vlan_filtering of bridge %s: %w", master, err)
+	}
+	info := &UplinkVlans{
+		Uplink:        uplink,
+		Bridge:        master,
+		VlanFiltering: strings.TrimSpace(string(content)) == "1",
+	}
+	if !info.VlanFiltering {
+		return info, nil
+	}
+
+	vlans, err := h.netlinkProvider.GetBridgePortVlans(uplink)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the VLANs of uplink %s: %w", uplink, err)
+	}
+	for _, vlan := range vlans {
+		info.Vlans = append(info.Vlans, vlan.Vid)
+		if vlan.Untagged {
+			info.UntaggedVlan = vlan.Vid
+		}
+	}
+	sort.Ints(info.Vlans)
+
+	return info, nil
 }
 
 // GetNumaNode returns the NUMA node for a given PCI device.

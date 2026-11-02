@@ -71,6 +71,24 @@ const (
 	// Discovery runs at driver start, so a renegotiated speed shows up after
 	// a restart.
 	AttributePfLinkSpeedMbps = DriverName + "/pfLinkSpeedMbps"
+	// AttributeUplinkVlanFiltering, AttributeUplinkUntaggedVlan and
+	// AttributeUplinkVlans say which VLANs a VF of a switchdev PF can be put
+	// on: what the uplink of its representor's bridge carries (the PF, or
+	// the bond it is enslaved to), which sriov-vfio-cni checks a network's
+	// VLAN against. uplinkVlanFiltering is the bridge's vlan_filtering; a
+	// bridge without it takes no VLAN. With it, uplinkUntaggedVlan is the
+	// VLAN the uplink carries untagged, which a network without a VLAN
+	// lands on (omitted when the uplink is a pure trunk), and uplinkVlans
+	// every VLAN the uplink carries, as comma-separated IDs and ranges
+	// ("2200-2201,3000"; omitted when it carries none or the list exceeds
+	// a DRA attribute string). VF entries only, and none at all in legacy
+	// mode, where the VF is tagged in the NIC and any VLAN goes, on
+	// InfiniBand, which takes no VLAN, or when the uplink cannot be read.
+	// Discovery runs at driver start, so re-provisioned uplink VLANs show
+	// up after a restart.
+	AttributeUplinkVlanFiltering = DriverName + "/uplinkVlanFiltering"
+	AttributeUplinkUntaggedVlan  = DriverName + "/uplinkUntaggedVlan"
+	AttributeUplinkVlans         = DriverName + "/uplinkVlans"
 
 	// DeviceTypeVF and DeviceTypePF are the values of AttributeDeviceType.
 	DeviceTypeVF = "vf"
@@ -114,25 +132,28 @@ var (
 // (DiscoverSriovDevices). Policy-defined DeviceAttributes must NOT override these
 // keys — any attempt will be silently skipped with a warning log.
 var ReservedAttributes = map[resourceapi.QualifiedName]bool{
-	AttributeVendorID:           true,
-	AttributeDeviceID:           true,
-	AttributePFDeviceID:         true,
-	AttributePciAddress:         true,
-	AttributeMultusDeviceID:     true,
-	AttributePFName:             true,
-	AttributeEswitchMode:        true,
-	AttributeVFID:               true,
-	AttributePCIeRoot:           true,
-	AttributePfPciAddress:       true,
-	AttributeStandardPciAddress: true,
-	AttributeLinkType:           true,
-	AttributeRDMACapable:        true,
-	AttributeNUMANode:           true,
-	AttributeStandardNUMANode:   true,
-	AttributeDeviceType:         true,
-	AttributeNumVFs:             true,
-	AttributePfMTU:              true,
-	AttributePfLinkSpeedMbps:    true,
+	AttributeVendorID:            true,
+	AttributeDeviceID:            true,
+	AttributePFDeviceID:          true,
+	AttributePciAddress:          true,
+	AttributeMultusDeviceID:      true,
+	AttributePFName:              true,
+	AttributeEswitchMode:         true,
+	AttributeVFID:                true,
+	AttributePCIeRoot:            true,
+	AttributePfPciAddress:        true,
+	AttributeStandardPciAddress:  true,
+	AttributeLinkType:            true,
+	AttributeRDMACapable:         true,
+	AttributeNUMANode:            true,
+	AttributeStandardNUMANode:    true,
+	AttributeDeviceType:          true,
+	AttributeNumVFs:              true,
+	AttributePfMTU:               true,
+	AttributePfLinkSpeedMbps:     true,
+	AttributeUplinkVlanFiltering: true,
+	AttributeUplinkUntaggedVlan:  true,
+	AttributeUplinkVlans:         true,
 }
 
 type ConfigurationMode string

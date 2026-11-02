@@ -33,10 +33,40 @@ func NewHostForTest(netlinkProvider NetlinkProvider, sriovnetProvider ...Sriovne
 type FakeNetlinkProvider struct {
 	EswitchMode  string
 	EswitchError error
+	// LinkMasters maps an interface to its master; an interface missing
+	// from it has none.
+	LinkMasters map[string]FakeLinkMaster
+	// LinkMasterError, when non-nil, is returned by GetLinkMaster.
+	LinkMasterError error
+	// BridgePortVlans maps a bridge port to its VLAN membership.
+	BridgePortVlans map[string][]BridgeVlan
+	// BridgePortVlansError, when non-nil, is returned by GetBridgePortVlans.
+	BridgePortVlansError error
+}
+
+// FakeLinkMaster is the master FakeNetlinkProvider reports for an interface.
+type FakeLinkMaster struct {
+	Name string
+	Kind string
 }
 
 func (f *FakeNetlinkProvider) GetDevLinkDeviceEswitchMode(_ string) (string, error) {
 	return f.EswitchMode, f.EswitchError
+}
+
+func (f *FakeNetlinkProvider) GetLinkMaster(ifName string) (string, string, error) {
+	if f.LinkMasterError != nil {
+		return "", "", f.LinkMasterError
+	}
+	master := f.LinkMasters[ifName]
+	return master.Name, master.Kind, nil
+}
+
+func (f *FakeNetlinkProvider) GetBridgePortVlans(ifName string) ([]BridgeVlan, error) {
+	if f.BridgePortVlansError != nil {
+		return nil, f.BridgePortVlansError
+	}
+	return f.BridgePortVlans[ifName], nil
 }
 
 // FakeSriovnetProvider is a configurable SriovnetProvider for use in unit tests.

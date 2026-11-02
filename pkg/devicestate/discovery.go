@@ -30,6 +30,9 @@ type PFInfo struct {
 	// LinkSpeedMbps of the PF netdev; 0 when there is no netdev, the link is
 	// down, or it cannot be read.
 	LinkSpeedMbps int
+	// Uplink is what the uplink of a switchdev PF carries; nil in legacy
+	// mode, without a netdev, or when it cannot be read.
+	Uplink *host.UplinkVlans
 }
 
 func DiscoverSriovDevices() (types.AllocatableDevices, error) {
@@ -132,6 +135,22 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			}
 		}
 
+		// A switchdev Ethernet VF reaches the fabric through its
+		// representor's bridge, so it can only be put on a VLAN the bridge's
+		// uplink carries. A legacy VF is tagged in the NIC and takes any
+		// VLAN, and an InfiniBand VF is handed through with no VLAN at all,
+		// so there is nothing to read for either. A PF that is no bridge port
+		// (not yet provisioned) leaves the uplink attributes out.
+		var uplink *host.UplinkVlans
+		if pfNetName != "" && eswitchMode == consts.EswitchModeSwitchdev && linkType == consts.LinkTypeEthernet {
+			uplink, err = host.GetHelpers().GetUplinkVlans(pfNetName)
+			if err != nil {
+				logger.V(1).Info("Failed to read PF uplink VLANs, leaving the uplink attributes out",
+					"address", device.Address, "interface", pfNetName, "err", err)
+				uplink = nil
+			}
+		}
+
 		logger.Info("Found SR-IOV PF device",
 			"address", device.Address,
 			"interface", pfNetName,
@@ -142,7 +161,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			"pcieRoot", pcieRoot,
 			"linkType", linkType,
 			"mtu", mtu,
-			"linkSpeedMbps", linkSpeed)
+			"linkSpeedMbps", linkSpeed,
+			"uplink", uplink)
 
 		pfList = append(pfList, PFInfo{
 			PciAddress:    device.Address,
@@ -156,6 +176,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			NumaNode:      numaNode,
 			MTU:           mtu,
 			LinkSpeedMbps: linkSpeed,
+			Uplink:        uplink,
 		})
 	}
 
@@ -257,6 +278,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			}
 			addStandardNUMANode(attributes, numaNodeIntPtr)
 			addPFNetdevAttributes(attributes, pfInfo)
+			addUplinkVlanAttributes(attributes, pfInfo.Uplink)
 
 			resourceList[deviceName] = resourceapi.Device{
 				Name:       deviceName,
@@ -352,6 +374,52 @@ func addPFNetdevAttributes(attributes map[resourceapi.QualifiedName]resourceapi.
 			IntValue: ptr.To(int64(pfInfo.LinkSpeedMbps)),
 		}
 	}
+}
+
+// addUplinkVlanAttributes adds what a VF's uplink carries: uplinkVlanFiltering,
+// and on a VLAN-filtering bridge uplinkUntaggedVlan when the uplink carries a
+// VLAN untagged and uplinkVlans when its VLAN list fits an attribute string.
+// Nothing is added for an uplink that was not read (legacy mode, unreadable).
+// PF entries get none: a whole PF is handed through with no VLAN of its own.
+func addUplinkVlanAttributes(attributes map[resourceapi.QualifiedName]resourceapi.DeviceAttribute, uplink *host.UplinkVlans) {
+	if uplink == nil {
+		return
+	}
+	attributes[consts.AttributeUplinkVlanFiltering] = resourceapi.DeviceAttribute{
+		BoolValue: ptr.To(uplink.VlanFiltering),
+	}
+	if !uplink.VlanFiltering {
+		return
+	}
+	if uplink.UntaggedVlan > 0 {
+		attributes[consts.AttributeUplinkUntaggedVlan] = resourceapi.DeviceAttribute{
+			IntValue: ptr.To(int64(uplink.UntaggedVlan)),
+		}
+	}
+	if vlans := formatVlanRanges(uplink.Vlans); vlans != "" && len(vlans) <= resourceapi.DeviceAttributeMaxValueLength {
+		attributes[consts.AttributeUplinkVlans] = resourceapi.DeviceAttribute{
+			StringValue: ptr.To(vlans),
+		}
+	}
+}
+
+// formatVlanRanges renders ascending VLAN IDs as comma-separated IDs and
+// ranges of consecutive ones: [2200 2201 2202 3000] -> "2200-2202,3000".
+func formatVlanRanges(vlans []int) string {
+	parts := []string{}
+	for i := 0; i < len(vlans); {
+		j := i
+		for j+1 < len(vlans) && vlans[j+1] == vlans[j]+1 {
+			j++
+		}
+		if j > i {
+			parts = append(parts, fmt.Sprintf("%d-%d", vlans[i], vlans[j]))
+		} else {
+			parts = append(parts, strconv.Itoa(vlans[i]))
+		}
+		i = j + 1
+	}
+	return strings.Join(parts, ",")
 }
 
 // addStandardNUMANode adds resource.kubernetes.io/numaNode to a VF or PF

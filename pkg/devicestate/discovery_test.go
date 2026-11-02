@@ -246,6 +246,138 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(devices["0000-01-00-1"].Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(1500))))
 		})
 
+		Context("uplink VLANs", func() {
+			// discoverSwitchdevPF runs discovery on one switchdev PF with one
+			// VF, whose uplink GetUplinkVlans reports as given.
+			discoverSwitchdevPF := func(uplink *host.UplinkVlans, uplinkErr error) (resourceapi.Device, resourceapi.Device) {
+				pciInfo := &pci.Info{
+					Devices: []*pci.Device{
+						{
+							Address: "0000:5c:00.1",
+							Class:   &pcidb.Class{ID: "02"},
+							Vendor:  &pcidb.Vendor{ID: "15b3"},
+							Product: &pcidb.Product{ID: "1021"},
+						},
+					},
+				}
+				vfList := []host.VFInfo{{PciAddress: "0000:5c:08.2", VFID: 0, DeviceID: "101e"}}
+
+				mockHost.EXPECT().PCI().Return(pciInfo, nil)
+				mockHost.EXPECT().IsSriovVF("0000:5c:00.1").Return(false)
+				mockHost.EXPECT().TryGetPFInterfaceName("0000:5c:00.1").Return("ens1f1np1")
+				mockHost.EXPECT().GetNetDevMTU("ens1f1np1").Return(1500, nil)
+				mockHost.EXPECT().GetNetDevSpeed("ens1f1np1").Return(100000, nil)
+				mockHost.EXPECT().GetNicSriovMode("0000:5c:00.1").Return(consts.EswitchModeSwitchdev)
+				mockHost.EXPECT().GetUplinkVlans("ens1f1np1").Return(uplink, uplinkErr)
+				mockHost.EXPECT().GetNumaNode("0000:5c:00.1").Return("0", nil)
+				mockHost.EXPECT().GetPCIeRoot("0000:5c:00.1").Return("pci0000:5b", nil)
+				mockHost.EXPECT().GetLinkType("0000:5c:00.1").Return(consts.LinkTypeEthernet, nil)
+				mockHost.EXPECT().GetVFList("0000:5c:00.1").Return(vfList, nil)
+				mockHost.EXPECT().VerifyRDMACapability("0000:5c:00.1").Return(false)
+				mockHost.EXPECT().VerifyRDMACapability("0000:5c:08.2").Return(false)
+
+				devices, err := DiscoverSriovDevices()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(devices).To(HaveLen(2))
+				return devices["0000-5c-08-2"], devices["0000-5c-00-1"]
+			}
+
+			It("should publish what a VF-LAG trunk uplink carries on the VFs", func() {
+				vf, pf := discoverSwitchdevPF(&host.UplinkVlans{
+					Uplink: "bond0", Bridge: "br-bond0", VlanFiltering: true, Vlans: []int{2200, 2201},
+				}, nil)
+
+				Expect(vf.Attributes[consts.AttributeUplinkVlanFiltering].BoolValue).To(Equal(ptr.To(true)))
+				Expect(vf.Attributes[consts.AttributeUplinkVlans].StringValue).To(Equal(ptr.To("2200-2201")))
+				// A pure trunk has no VLAN for a network without one to land on.
+				Expect(vf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkUntaggedVlan)))
+				// A whole PF is handed through with no VLAN of its own.
+				Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlanFiltering)))
+				Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlans)))
+			})
+
+			It("should publish the untagged VLAN of an access uplink", func() {
+				vf, _ := discoverSwitchdevPF(&host.UplinkVlans{
+					Uplink: "bond0", Bridge: "br-bond0", VlanFiltering: true, UntaggedVlan: 1, Vlans: []int{1},
+				}, nil)
+
+				Expect(vf.Attributes[consts.AttributeUplinkUntaggedVlan].IntValue).To(Equal(ptr.To(int64(1))))
+				Expect(vf.Attributes[consts.AttributeUplinkVlans].StringValue).To(Equal(ptr.To("1")))
+			})
+
+			It("should publish only uplinkVlanFiltering for a bridge without vlan_filtering", func() {
+				vf, _ := discoverSwitchdevPF(&host.UplinkVlans{Uplink: "bond0", Bridge: "br-bond0"}, nil)
+
+				Expect(vf.Attributes[consts.AttributeUplinkVlanFiltering].BoolValue).To(Equal(ptr.To(false)))
+				Expect(vf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkUntaggedVlan)))
+				Expect(vf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlans)))
+			})
+
+			It("should leave the uplink attributes out when the uplink cannot be read", func() {
+				vf, _ := discoverSwitchdevPF(nil, fmt.Errorf("uplink ens1f1np1 is not a bridge port"))
+
+				Expect(vf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlanFiltering)))
+				Expect(vf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlans)))
+				// The rest of the PF attributes are unaffected.
+				Expect(vf.Attributes[consts.AttributePfMTU].IntValue).To(Equal(ptr.To(int64(1500))))
+			})
+
+			It("should not read the uplink of a legacy PF", func() {
+				// No GetUplinkVlans expectation: the strict mock fails the test
+				// if discovery reads the uplink of a legacy PF.
+				pciInfo := &pci.Info{
+					Devices: []*pci.Device{
+						{
+							Address: "0000:01:00.0",
+							Class:   &pcidb.Class{ID: "02"},
+							Vendor:  &pcidb.Vendor{ID: "15b3"},
+							Product: &pcidb.Product{ID: "101d"},
+						},
+					},
+				}
+				vfList := []host.VFInfo{{PciAddress: "0000:01:00.1", VFID: 0, DeviceID: "101e"}}
+
+				mockHost.EXPECT().PCI().Return(pciInfo, nil)
+				mockHost.EXPECT().IsSriovVF("0000:01:00.0").Return(false)
+				mockHost.EXPECT().TryGetPFInterfaceName("0000:01:00.0").Return("eth0")
+				mockHost.EXPECT().GetNetDevMTU("eth0").Return(1500, nil)
+				mockHost.EXPECT().GetNetDevSpeed("eth0").Return(25000, nil)
+				mockHost.EXPECT().GetNicSriovMode("0000:01:00.0").Return(consts.EswitchModeLegacy)
+				mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("0", nil)
+				mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
+				mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeEthernet, nil)
+				mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList, nil)
+				mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
+				mockHost.EXPECT().VerifyRDMACapability("0000:01:00.1").Return(false)
+
+				devices, err := DiscoverSriovDevices()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(devices["0000-01-00-1"].Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlanFiltering)))
+			})
+
+			It("should render VLAN IDs as ranges and leave out a list that does not fit", func() {
+				Expect(formatVlanRanges(nil)).To(Equal(""))
+				Expect(formatVlanRanges([]int{2200})).To(Equal("2200"))
+				Expect(formatVlanRanges([]int{100, 2200, 2201, 2202, 3000, 3002})).To(Equal("100,2200-2202,3000,3002"))
+
+				// 13 separate four-digit VLANs render as 64 characters, which
+				// still fit; a 14th does not.
+				var vlans []int
+				for vid := 1000; vid < 1026; vid += 2 {
+					vlans = append(vlans, vid)
+				}
+				attributes := map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{}
+				addUplinkVlanAttributes(attributes, &host.UplinkVlans{VlanFiltering: true, Vlans: vlans})
+				Expect(*attributes[consts.AttributeUplinkVlans].StringValue).To(HaveLen(64))
+
+				vlans = append(vlans, 1026)
+				attributes = map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{}
+				addUplinkVlanAttributes(attributes, &host.UplinkVlans{VlanFiltering: true, Vlans: vlans})
+				Expect(attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlans)))
+				Expect(attributes[consts.AttributeUplinkVlanFiltering].BoolValue).To(Equal(ptr.To(true)))
+			})
+		})
+
 		It("should discover multiple PFs with VFs", func() {
 			pciInfo := &pci.Info{
 				Devices: []*pci.Device{
@@ -324,6 +456,8 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev2.Attributes[consts.AttributePCIeRoot].StringValue).To(Equal(ptr.To("pci0000:00")))
 			Expect(dev2.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:02:00.1")))
 			Expect(dev2.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeInfiniband)))
+			// An InfiniBand VF takes no VLAN, so its uplink is not read even in switchdev mode.
+			Expect(dev2.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlanFiltering)))
 			Expect(dev2.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(1))))
 			// Compatibility attributes
 			Expect(dev2.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(1))))
