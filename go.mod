@@ -12,7 +12,7 @@ require (
 	github.com/k8snetworkplumbingwg/sriovnet v1.3.0
 	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/urfave/cli/v3 v3.14.0
 	github.com/vishvananda/netlink v1.3.2-0.20260831221819-dcee5577542a
 	go.uber.org/mock v0.6.0
