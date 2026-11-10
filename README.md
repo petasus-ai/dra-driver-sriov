@@ -298,8 +298,8 @@ Rules that keep PF advertisement safe:
 - PF entries carry `deviceType: "pf"` and `numVFs` attributes, omit `vfID`,
   and their parent fields (`pfPciAddress`, `pfDeviceID`) reference the PF
   itself. A PF bound to vfio-pci has no netdev, so `PFName`, `pfMTU` and
-  `pfLinkSpeedMbps` are omitted and the link type is derived from the PCI
-  subclass.
+  `pfLinkSpeedMbps` are omitted, the link type is derived from the PCI
+  subclass, and the `portGUID` of an InfiniBand PF comes from its VPD.
 
 See [docs/design/pf-advertisement.md](docs/design/pf-advertisement.md) for the full design.
 
@@ -324,6 +324,56 @@ not a per-VF guarantee; an InfiniBand PF reports its active IPoIB rate. The
 attribute is omitted when the PF has no netdev, its link is down at discovery,
 or the speed cannot be read, and like `pfMTU` it is refreshed when the driver
 restarts.
+
+An InfiniBand device carries
+`sriovnetwork.k8snetworkplumbingwg.io/portGUID` (string), the GUID a subnet
+manager knows its port by, as 16 lowercase hex digits without separators (for
+example `00005e03000053a7`). A fabric controller can read it from the devices
+allocated to a claim to add their ports to a partition. The first source that
+knows the GUID wins:
+
+1. The kernel, for a function bound to its network/RDMA driver: GID 0 of the
+   port of its RDMA device (`/sys/class/infiniband/<device>/ports/1/gids/0`),
+   else the address of its IPoIB netdev.
+2. For a VF, the port GUID set administratively through its PF netdev
+   (`ip link set <pf> vf <n> port_guid ...`).
+3. For a Mellanox/NVIDIA (`15b3`) PF, the PCI VPD, which stays readable when
+   the PF is bound to vfio-pci and has neither netdev nor RDMA device: the
+   adapter UUID in the `V3` keyword ends with the adapter's base MAC, and the
+   port GUID is that MAC with `03:00` between its third and fourth byte.
+
+The attribute is omitted when no source knows the GUID, and on Ethernet
+devices; it is never empty or zero. A missing GUID is preferred to a wrong
+one:
+
+- A function the kernel shows more than one InfiniBand port for (an RDMA
+  device with several ports, several RDMA devices, IPoIB netdevs with
+  different GUIDs) has no single port GUID and takes none from another
+  source. The GUIDs set through a PF netdev are used only when the PF's RDMA
+  device shows exactly one port.
+- The VPD rule holds for single-port adapters, so it is applied only to
+  function 0 of a slot that has no other physical function, on ConnectX-4 or
+  later (PCI device ID `1013` and up), which give every port its own PCI
+  function. Connect-IB, ConnectX-3 and older can carry two ports on one
+  function and are left out; the ports of a multi-port or multi-function
+  adapter get a GUID from the kernel or none.
+- A VPD is trusted only when it is whole and its checksum holds: VPD-R has to
+  end with an `RV` field that brings the sum of all bytes from the start of
+  the VPD through its checksum byte to 0 modulo 256.
+- A VPD names the adapter, not the PCI function it is read through, so
+  VPD-derived GUIDs are published for all PFs of a node or for none. When a
+  PF needs one, the VPD of every Mellanox/NVIDIA InfiniBand PF the rule
+  applies to is read, the ones with a kernel GUID included. The GUIDs are
+  published only when each of those PFs yields one and no two share a GUID,
+  serial number (`SN`) or UUID, nor one of them the kernel GUID of another
+  PF, and no PF's kernel GUID differs from the one its own VPD yields.
+  Otherwise the driver logs the PCI addresses that failed, collided or
+  contradicted the rule and publishes no VPD-derived GUID; kernel and VF
+  GUIDs are not affected.
+
+Like the other discovery attributes the GUID is read when the driver starts
+and refreshed when it restarts. A VPD that yielded a GUID is not read again
+by the same driver process.
 
 A VF of a switchdev PF also says which VLANs it can be put on. Its
 representor sits on a bridge whose only way out is the uplink port, the PF or

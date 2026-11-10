@@ -128,6 +128,36 @@ func (mr *MockInterfaceMockRecorder) GetDriverByBusAndDevice(device any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDriverByBusAndDevice", reflect.TypeOf((*MockInterface)(nil).GetDriverByBusAndDevice), device)
 }
 
+// GetIBPortGUID mocks base method.
+func (m *MockInterface) GetIBPortGUID(pciAddr string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIBPortGUID", pciAddr)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetIBPortGUID indicates an expected call of GetIBPortGUID.
+func (mr *MockInterfaceMockRecorder) GetIBPortGUID(pciAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIBPortGUID", reflect.TypeOf((*MockInterface)(nil).GetIBPortGUID), pciAddr)
+}
+
+// GetIBPortGUIDFromVPD mocks base method.
+func (m *MockInterface) GetIBPortGUIDFromVPD(pciAddr string) (host.VPDPortGUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIBPortGUIDFromVPD", pciAddr)
+	ret0, _ := ret[0].(host.VPDPortGUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetIBPortGUIDFromVPD indicates an expected call of GetIBPortGUIDFromVPD.
+func (mr *MockInterfaceMockRecorder) GetIBPortGUIDFromVPD(pciAddr any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIBPortGUIDFromVPD", reflect.TypeOf((*MockInterface)(nil).GetIBPortGUIDFromVPD), pciAddr)
+}
+
 // GetLinkType mocks base method.
 func (m *MockInterface) GetLinkType(pciAddr string) (string, error) {
 	m.ctrl.T.Helper()
@@ -259,6 +289,21 @@ func (m *MockInterface) GetUplinkVlans(pfName string) (*host.UplinkVlans, error)
 func (mr *MockInterfaceMockRecorder) GetUplinkVlans(pfName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUplinkVlans", reflect.TypeOf((*MockInterface)(nil).GetUplinkVlans), pfName)
+}
+
+// GetVFIBPortGUIDs mocks base method.
+func (m *MockInterface) GetVFIBPortGUIDs(pfPciAddr, pfName string) (map[int]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVFIBPortGUIDs", pfPciAddr, pfName)
+	ret0, _ := ret[0].(map[int]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetVFIBPortGUIDs indicates an expected call of GetVFIBPortGUIDs.
+func (mr *MockInterfaceMockRecorder) GetVFIBPortGUIDs(pfPciAddr, pfName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVFIBPortGUIDs", reflect.TypeOf((*MockInterface)(nil).GetVFIBPortGUIDs), pfPciAddr, pfName)
 }
 
 // GetVFIODeviceFile mocks base method.

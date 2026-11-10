@@ -1,7 +1,10 @@
 package devicestate
 
 import (
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -33,6 +36,13 @@ type PFInfo struct {
 	// Uplink is what the uplink of a switchdev PF carries; nil in legacy
 	// mode, without a netdev, or when it cannot be read.
 	Uplink *host.UplinkVlans
+	// PortGUID is the InfiniBand port GUID of the PF; empty for another
+	// link type or when it is unknown.
+	PortGUID string
+	// MultiPort is set when the kernel shows more than one InfiniBand port
+	// for the PF: it has no single port GUID and takes none from its VPD,
+	// and its VFs take none set through it.
+	MultiPort bool
 }
 
 func DiscoverSriovDevices() (types.AllocatableDevices, error) {
@@ -151,6 +161,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			}
 		}
 
+		portGUID, multiPort := kernelPFPortGUID(logger, device.Address, linkType)
+
 		logger.Info("Found SR-IOV PF device",
 			"address", device.Address,
 			"interface", pfNetName,
@@ -162,7 +174,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			"linkType", linkType,
 			"mtu", mtu,
 			"linkSpeedMbps", linkSpeed,
-			"uplink", uplink)
+			"uplink", uplink,
+			"kernelPortGUID", portGUID)
 
 		pfList = append(pfList, PFInfo{
 			PciAddress:    device.Address,
@@ -177,8 +190,12 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			MTU:           mtu,
 			LinkSpeedMbps: linkSpeed,
 			Uplink:        uplink,
+			PortGUID:      portGUID,
+			MultiPort:     multiPort,
 		})
 	}
+
+	resolveVPDPortGUIDs(logger, pfList)
 
 	logger.Info("Processing SR-IOV PF devices", "pfCount", len(pfList))
 
@@ -210,6 +227,8 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 		// controller can evaluate it.
 		pfDevice := buildPFDevice(pfInfo, len(vfList), numaNodeIntPtr)
 		resourceList[pfDevice.Name] = pfDevice
+
+		vfPortGUIDs := vfIBPortGUIDs(logger, pfInfo, vfList)
 
 		for _, vfInfo := range vfList {
 			deviceName := strings.ReplaceAll(vfInfo.PciAddress, ":", "-")
@@ -279,6 +298,7 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 			addStandardNUMANode(attributes, numaNodeIntPtr)
 			addPFNetdevAttributes(attributes, pfInfo)
 			addUplinkVlanAttributes(attributes, pfInfo.Uplink)
+			addPortGUID(attributes, vfPortGUIDs[vfInfo.VFID])
 
 			resourceList[deviceName] = resourceapi.Device{
 				Name:       deviceName,
@@ -293,8 +313,9 @@ func DiscoverSriovDevices() (types.AllocatableDevices, error) {
 
 // buildPFDevice builds the allocatable device entry for a PF candidate. The
 // attribute layout mirrors the VF entries with self-referential parent
-// fields; vfID is omitted (no meaningful value), and PFName, pfMTU and
-// pfLinkSpeedMbps are omitted for netdev-less PFs.
+// fields; vfID is omitted (no meaningful value), PFName, pfMTU and
+// pfLinkSpeedMbps are omitted for netdev-less PFs, and portGUID is present
+// only on an InfiniBand PF whose port GUID is known.
 func buildPFDevice(pfInfo PFInfo, numVFs int, numaNode *int64) resourceapi.Device {
 	deviceName := strings.ReplaceAll(pfInfo.Address, ":", "-")
 	deviceName = strings.ReplaceAll(deviceName, ".", "-")
@@ -347,10 +368,188 @@ func buildPFDevice(pfInfo PFInfo, numVFs int, numaNode *int64) resourceapi.Devic
 	}
 	addStandardNUMANode(attributes, numaNode)
 	addPFNetdevAttributes(attributes, pfInfo)
+	addPortGUID(attributes, pfInfo.PortGUID)
 
 	return resourceapi.Device{
 		Name:       deviceName,
 		Attributes: attributes,
+	}
+}
+
+// kernelPFPortGUID returns the port GUID the kernel holds for an InfiniBand
+// PF bound to its network/RDMA driver, "" when it holds none, and whether it
+// shows more than one port for the PF.
+func kernelPFPortGUID(logger klog.Logger, pciAddress, linkType string) (portGUID string, multiPort bool) {
+	if linkType != consts.LinkTypeInfiniband {
+		return "", false
+	}
+
+	guid, err := host.GetHelpers().GetIBPortGUID(pciAddress)
+	if err == nil {
+		return guid, false
+	}
+	if errors.Is(err, host.ErrMultiplePorts) {
+		logger.V(1).Info("PF has more than one InfiniBand port, leaving portGUID out", "address", pciAddress, "err", err)
+		return "", true
+	}
+	logger.V(2).Info("No kernel port GUID for PF", "address", pciAddress, "err", err)
+	return "", false
+}
+
+// isMellanoxIBPF reports whether a PF is a Mellanox/NVIDIA InfiniBand one,
+// the kind whose VPD may hold its port GUID.
+func isMellanoxIBPF(pfInfo PFInfo) bool {
+	return pfInfo.LinkType == consts.LinkTypeInfiniband && strings.EqualFold(pfInfo.VendorID, consts.VendorIDMellanox)
+}
+
+// needsVPDPortGUID reports whether a PF is left to its VPD for a port GUID:
+// the kernel holds none, as for a PF bound to vfio-pci.
+func needsVPDPortGUID(pfInfo PFInfo) bool {
+	return isMellanoxIBPF(pfInfo) && pfInfo.PortGUID == "" && !pfInfo.MultiPort
+}
+
+// resolveVPDPortGUIDs gives the PFs that need one the port GUID derived from
+// their VPD, all of them or none. A VPD names the adapter, not the PCI
+// function it is read through, so a GUID is a PF's own only when no other PF
+// of the node carries the same VPD. That is taken as proven when every PF
+// the VPD rule applies to, the ones with a kernel GUID included, yields a
+// GUID, and no two of them share a GUID, serial number or UUID, nor one of
+// them the kernel GUID of another PF. A PF whose kernel GUID is not the one
+// its VPD yields contradicts the rule on this node, and none is published.
+// Nothing is read when no PF needs it.
+func resolveVPDPortGUIDs(logger klog.Logger, pfList []PFInfo) {
+	if !slices.ContainsFunc(pfList, needsVPDPortGUID) {
+		return
+	}
+
+	derived := map[int]host.VPDPortGUID{}
+	failed := []string{}
+	for i, pfInfo := range pfList {
+		if !isMellanoxIBPF(pfInfo) {
+			continue
+		}
+		portGUID, err := host.GetHelpers().GetIBPortGUIDFromVPD(pfInfo.Address)
+		switch {
+		case errors.Is(err, host.ErrVPDNotApplicable):
+			logger.V(2).Info("VPD port GUID rule does not apply to PF", "address", pfInfo.Address, "err", err)
+		case err != nil:
+			failed = append(failed, fmt.Sprintf("%s (%v)", pfInfo.Address, err))
+		default:
+			derived[i] = portGUID
+		}
+	}
+
+	contradicted := []string{}
+	for i, portGUID := range derived {
+		if kernel := pfList[i].PortGUID; kernel != "" && kernel != portGUID.GUID {
+			contradicted = append(contradicted, pfList[i].Address)
+		}
+	}
+	slices.Sort(contradicted)
+
+	collided := vpdPortGUIDCollisions(pfList, derived)
+	if len(failed) > 0 || len(collided) > 0 || len(contradicted) > 0 {
+		logger.Info("Leaving every VPD-derived portGUID out: a PF yielded none, PFs share a GUID, serial number or UUID, or a kernel GUID differs from the VPD's",
+			"failed", failed, "collided", collided, "contradicted", contradicted)
+		return
+	}
+
+	for i, portGUID := range derived {
+		if needsVPDPortGUID(pfList[i]) {
+			logger.V(1).Info("Port GUID of PF derived from its VPD", "address", pfList[i].Address, "portGUID", portGUID.GUID)
+			pfList[i].PortGUID = portGUID.GUID
+		}
+	}
+}
+
+// vpdPortGUIDCollisions returns the addresses of the PFs whose VPD-derived
+// GUID, serial number or UUID is that of another PF's VPD, or whose
+// VPD-derived GUID is the kernel GUID of another PF, in ascending order.
+func vpdPortGUIDCollisions(pfList []PFInfo, derived map[int]host.VPDPortGUID) []string {
+	type identity struct{ kind, value string }
+	owners := map[identity][]int{}
+	own := func(kind, value string, i int) {
+		owners[identity{kind, value}] = append(owners[identity{kind, value}], i)
+	}
+	for i, portGUID := range derived {
+		own("guid", portGUID.GUID, i)
+		own("uuid", portGUID.UUID, i)
+		if portGUID.SerialNumber != "" {
+			own("serial", portGUID.SerialNumber, i)
+		}
+	}
+
+	collided := map[string]bool{}
+	for _, indexes := range owners {
+		if len(indexes) > 1 {
+			for _, i := range indexes {
+				collided[pfList[i].Address] = true
+			}
+		}
+	}
+	for i, portGUID := range derived {
+		for j, other := range pfList {
+			if j != i && other.PortGUID == portGUID.GUID {
+				collided[pfList[i].Address] = true
+				collided[other.Address] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(collided))
+}
+
+// vfIBPortGUIDs resolves the port GUIDs of the VFs of an InfiniBand PF, by VF
+// ID; a VF whose GUID is unknown is left out. The kernel's own value of a VF
+// bound to its network/RDMA driver comes first, then the GUID set
+// administratively through the PF netdev, which is read at most once and
+// only when a VF needs it. A VF the kernel shows more than one port for
+// takes no GUID, and a PF it shows more than one port for is not asked.
+func vfIBPortGUIDs(logger klog.Logger, pfInfo PFInfo, vfList []host.VFInfo) map[int]string {
+	guids := map[int]string{}
+	if pfInfo.LinkType != consts.LinkTypeInfiniband {
+		return guids
+	}
+
+	var adminGUIDs map[int]string
+	adminPending := pfInfo.NetName != "" && !pfInfo.MultiPort
+	for _, vfInfo := range vfList {
+		guid, err := host.GetHelpers().GetIBPortGUID(vfInfo.PciAddress)
+		if err == nil {
+			guids[vfInfo.VFID] = guid
+			continue
+		}
+		if errors.Is(err, host.ErrMultiplePorts) {
+			logger.V(1).Info("VF has more than one InfiniBand port, leaving portGUID out",
+				"vfAddress", vfInfo.PciAddress, "err", err)
+			continue
+		}
+		logger.V(2).Info("No kernel port GUID for VF", "vfAddress", vfInfo.PciAddress, "err", err)
+
+		if adminPending {
+			adminPending = false
+			adminGUIDs, err = host.GetHelpers().GetVFIBPortGUIDs(pfInfo.Address, pfInfo.NetName)
+			if err != nil {
+				logger.V(2).Info("Failed to read the VF port GUIDs of the PF",
+					"address", pfInfo.Address, "interface", pfInfo.NetName, "err", err)
+			}
+		}
+		if adminGUID, ok := adminGUIDs[vfInfo.VFID]; ok {
+			guids[vfInfo.VFID] = adminGUID
+		} else {
+			logger.V(2).Info("No port GUID for VF, leaving portGUID out", "vfAddress", vfInfo.PciAddress)
+		}
+	}
+	return guids
+}
+
+// addPortGUID adds portGUID to a VF or PF entry whose InfiniBand port GUID is
+// known.
+func addPortGUID(attributes map[resourceapi.QualifiedName]resourceapi.DeviceAttribute, portGUID string) {
+	if portGUID == "" {
+		return
+	}
+	attributes[consts.AttributePortGUID] = resourceapi.DeviceAttribute{
+		StringValue: ptr.To(portGUID),
 	}
 }
 

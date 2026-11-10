@@ -42,6 +42,10 @@ type FakeNetlinkProvider struct {
 	BridgePortVlans map[string][]BridgeVlan
 	// BridgePortVlansError, when non-nil, is returned by GetBridgePortVlans.
 	BridgePortVlansError error
+	// VfPortGUIDs maps a PF to the port GUIDs of its VFs, by VF index.
+	VfPortGUIDs map[string]map[int]uint64
+	// VfPortGUIDsError, when non-nil, is returned by GetVfPortGUIDs.
+	VfPortGUIDsError error
 }
 
 // FakeLinkMaster is the master FakeNetlinkProvider reports for an interface.
@@ -67,6 +71,13 @@ func (f *FakeNetlinkProvider) GetBridgePortVlans(ifName string) ([]BridgeVlan, e
 		return nil, f.BridgePortVlansError
 	}
 	return f.BridgePortVlans[ifName], nil
+}
+
+func (f *FakeNetlinkProvider) GetVfPortGUIDs(pfName string) (map[int]uint64, error) {
+	if f.VfPortGUIDsError != nil {
+		return nil, f.VfPortGUIDsError
+	}
+	return f.VfPortGUIDs[pfName], nil
 }
 
 // FakeSriovnetProvider is a configurable SriovnetProvider for use in unit tests.

@@ -146,6 +146,12 @@ type Interface interface {
 	GetRDMADevicesForPCI(pciAddr string) []string
 	VerifyRDMACapability(pciAddr string) bool
 	GetRDMACharDevices(rdmaDeviceName string) ([]string, error)
+
+	// InfiniBand port GUID functions. A GUID is 16 lowercase hex digits; an
+	// unknown one is an error, never an empty or zero value.
+	GetIBPortGUID(pciAddr string) (string, error)
+	GetVFIBPortGUIDs(pfPciAddr, pfName string) (map[int]string, error)
+	GetIBPortGUIDFromVPD(pciAddr string) (VPDPortGUID, error)
 }
 
 // Host provides unified host system functionality for SR-IOV, PCI operations, and driver management
@@ -154,6 +160,11 @@ type Host struct {
 	rdmaProvider     RdmaProvider
 	netlinkProvider  NetlinkProvider
 	sriovnetProvider SriovnetProvider
+
+	// vpdPortGUIDs holds what the VPD of each PCI function yielded; a
+	// function whose VPD yielded nothing is not in it.
+	vpdMu        sync.Mutex
+	vpdPortGUIDs map[string]VPDPortGUID
 }
 
 // NewHost creates a new Host instance

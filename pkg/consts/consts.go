@@ -89,6 +89,25 @@ const (
 	AttributeUplinkVlanFiltering = DriverName + "/uplinkVlanFiltering"
 	AttributeUplinkUntaggedVlan  = DriverName + "/uplinkUntaggedVlan"
 	AttributeUplinkVlans         = DriverName + "/uplinkVlans"
+	// AttributePortGUID is the InfiniBand port GUID of the device, the
+	// identity a subnet manager knows its port by: 16 lowercase hex digits
+	// without separators ("00005e03000053a7"). InfiniBand devices only, and
+	// omitted when the GUID is unknown. The first source that knows it wins:
+	// the kernel, for a function bound to its network/RDMA driver (GID 0 of
+	// the RDMA device's port, else the IPoIB netdev address); for a VF, the
+	// port GUID set administratively through the netdev of a single-port
+	// PF; for a Mellanox/NVIDIA PF without a kernel driver (bound to
+	// vfio-pci), the adapter's base MAC from its PCI VPD with 03:00 in the
+	// middle. A function the kernel shows more than one port for takes no
+	// GUID from any source. The VPD rule holds for single-port adapters, so
+	// it is applied only to function 0 of a slot that has no other physical
+	// function, on ConnectX-4 or later (one PCI function per port), to a VPD
+	// whose checksum holds, and for all PFs of a node or none: only when
+	// every PF the rule applies to yields a GUID, no two share a GUID,
+	// serial number or UUID, and none has a kernel GUID that differs from
+	// its VPD's. Discovery runs at driver start, so a GUID
+	// assigned later shows up after a restart.
+	AttributePortGUID = DriverName + "/portGUID"
 
 	// DeviceTypeVF and DeviceTypePF are the values of AttributeDeviceType.
 	DeviceTypeVF = "vf"
@@ -115,6 +134,9 @@ const (
 
 	// RDMA device constants
 	SysClassInfiniband = "/sys/class/infiniband"
+
+	// VendorIDMellanox is the PCI vendor ID of Mellanox/NVIDIA adapters.
+	VendorIDMellanox = "15b3"
 )
 
 // Kubernetes standard attributes
@@ -154,6 +176,7 @@ var ReservedAttributes = map[resourceapi.QualifiedName]bool{
 	AttributeUplinkVlanFiltering: true,
 	AttributeUplinkUntaggedVlan:  true,
 	AttributeUplinkVlans:         true,
+	AttributePortGUID:            true,
 }
 
 type ConfigurationMode string

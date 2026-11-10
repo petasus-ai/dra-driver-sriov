@@ -190,6 +190,7 @@ presence. Attribute mapping for a PF entry:
 | `resource.kubernetes.io/numaNode` | as for VFs; omitted when the PF has no NUMA affinity (`-1`) |
 | `rdmaCapable` | per `VerifyRDMACapability(pf)`; `false` for a vfio-bound PF (no kernel RDMA device exists) — documented, not special-cased |
 | `deviceType` | `"pf"` |
+| `portGUID` | InfiniBand PFs only: the port GUID from the kernel (RDMA device GID 0, else IPoIB netdev address; none for a PF with more than one port), else for a vfio-bound Mellanox/NVIDIA PF from its PCI VPD (`V3` UUID → base MAC with `03:00` in the middle; function 0 of a single-function slot, ConnectX-4 or later, VPD checksum valid; published for all such PFs of the node or none, only when each yields a GUID and no two share a GUID, serial number or UUID); omitted when unknown |
 
 ### 3. Advertisement Gating
 

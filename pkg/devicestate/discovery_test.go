@@ -424,6 +424,8 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetNumaNode("0000:02:00.0").Return("1", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:02:00.0").Return("pci0000:00", nil)
 			mockHost.EXPECT().GetLinkType("0000:02:00.0").Return(consts.LinkTypeInfiniband, nil)
+			mockHost.EXPECT().GetIBPortGUID("0000:02:00.0").Return("00005e03000053a7", nil)
+			mockHost.EXPECT().GetIBPortGUID("0000:02:00.1").Return("00005e03000053a8", nil)
 
 			mockHost.EXPECT().GetVFList("0000:01:00.0").Return(vfList1, nil)
 			mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false)
@@ -445,6 +447,9 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev1.Attributes[consts.AttributeStandardPciAddress].StringValue).To(Equal(ptr.To("0000:01:00.1")))
 			Expect(dev1.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeEthernet)))
 			Expect(dev1.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
+			// An Ethernet device has no port GUID, and none is looked up.
+			Expect(dev1.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePortGUID)))
+			Expect(devices["0000-01-00-0"].Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePortGUID)))
 			// Compatibility attributes
 			Expect(dev1.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(0))))
 
@@ -458,6 +463,9 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			Expect(dev2.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeInfiniband)))
 			// An InfiniBand VF takes no VLAN, so its uplink is not read even in switchdev mode.
 			Expect(dev2.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributeUplinkVlanFiltering)))
+			// An InfiniBand VF and its PF each carry their own port GUID.
+			Expect(dev2.Attributes[consts.AttributePortGUID].StringValue).To(Equal(ptr.To("00005e03000053a8")))
+			Expect(devices["0000-02-00-0"].Attributes[consts.AttributePortGUID].StringValue).To(Equal(ptr.To("00005e03000053a7")))
 			Expect(dev2.Attributes[consts.AttributeStandardNUMANode].IntValue).To(Equal(ptr.To(int64(1))))
 			// Compatibility attributes
 			Expect(dev2.Attributes[consts.AttributeNUMANode].IntValue).To(Equal(ptr.To(int64(1))))
@@ -563,6 +571,10 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			mockHost.EXPECT().GetNumaNode("0000:19:00.0").Return("0", nil)
 			mockHost.EXPECT().GetPCIeRoot("0000:19:00.0").Return("pci0000:16", nil)
 			mockHost.EXPECT().GetLinkType("0000:19:00.0").Return("", fmt.Errorf("no netdev"))
+			mockHost.EXPECT().GetIBPortGUID("0000:19:00.0").Return("", fmt.Errorf("no kernel driver"))
+			mockHost.EXPECT().GetIBPortGUIDFromVPD("0000:19:00.0").Return(host.VPDPortGUID{
+				GUID: "00005e03000053a7", SerialNumber: "EX0000000001", UUID: "0123456789abcdef800000005e0053a7",
+			}, nil)
 			mockHost.EXPECT().GetVFList("0000:19:00.0").Return([]host.VFInfo{}, nil)
 			mockHost.EXPECT().VerifyRDMACapability("0000:19:00.0").Return(false)
 
@@ -573,6 +585,423 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			pf := devices["0000-19-00-0"]
 			Expect(pf.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeInfiniband)))
 			Expect(pf.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypePF)))
+			// Without a netdev or RDMA device, the port GUID comes from the VPD.
+			Expect(pf.Attributes[consts.AttributePortGUID].StringValue).To(Equal(ptr.To("00005e03000053a7")))
+		})
+
+		Context("InfiniBand port GUID", func() {
+			const (
+				pfAddr     = "0000:19:00.0"
+				pfAddr2    = "0000:1a:00.0"
+				pfAddr3    = "0000:1b:00.0"
+				kernelGUID = "00005e03000053a7"
+				adminGUID  = "00005e03000053c2"
+			)
+			portGUID := resourceapi.QualifiedName(consts.AttributePortGUID)
+			errNoDriver := fmt.Errorf("no kernel driver")
+			errMultiPort := fmt.Errorf("no single port GUID: %w", host.ErrMultiplePorts)
+			errNotApplicable := fmt.Errorf("%w: shares its slot", host.ErrVPDNotApplicable)
+
+			// ibPF is an InfiniBand PF: with a netdev when name is set, bound
+			// to vfio-pci (link type from the PCI subclass) when it is empty.
+			type ibPF struct {
+				addr   string
+				vendor string
+				name   string
+				vfs    []host.VFInfo
+			}
+
+			// expectPFs sets up one discovery pass over the given PFs, all but
+			// the port GUID lookups.
+			expectPFs := func(pfs ...ibPF) {
+				pciInfo := &pci.Info{}
+				devices := 0
+				for _, pf := range pfs {
+					pciInfo.Devices = append(pciInfo.Devices, &pci.Device{
+						Address:  pf.addr,
+						Class:    &pcidb.Class{ID: "02"},
+						Subclass: &pcidb.Subclass{ID: "07"},
+						Vendor:   &pcidb.Vendor{ID: pf.vendor},
+						Product:  &pcidb.Product{ID: "1021"},
+					})
+					mockHost.EXPECT().IsSriovVF(pf.addr).Return(false)
+					mockHost.EXPECT().TryGetPFInterfaceName(pf.addr).Return(pf.name)
+					if pf.name != "" {
+						mockHost.EXPECT().GetNetDevMTU(pf.name).Return(4092, nil)
+						mockHost.EXPECT().GetNetDevSpeed(pf.name).Return(400000, nil)
+						mockHost.EXPECT().GetLinkType(pf.addr).Return(consts.LinkTypeInfiniband, nil)
+					} else {
+						mockHost.EXPECT().GetLinkType(pf.addr).Return("", fmt.Errorf("no netdev"))
+					}
+					mockHost.EXPECT().GetNicSriovMode(pf.addr).Return(consts.EswitchModeLegacy)
+					mockHost.EXPECT().GetNumaNode(pf.addr).Return("0", nil)
+					mockHost.EXPECT().GetPCIeRoot(pf.addr).Return("pci0000:16", nil)
+					mockHost.EXPECT().GetVFList(pf.addr).Return(pf.vfs, nil)
+					devices += 1 + len(pf.vfs)
+				}
+				mockHost.EXPECT().PCI().Return(pciInfo, nil)
+				mockHost.EXPECT().VerifyRDMACapability(gomock.Any()).Return(false).Times(devices)
+			}
+
+			// vpd is what the VPD of adapter n yields: a GUID, serial number
+			// and UUID of its own.
+			vpd := func(n int) host.VPDPortGUID {
+				return host.VPDPortGUID{
+					GUID:         fmt.Sprintf("00005e03000053b%d", n),
+					SerialNumber: fmt.Sprintf("EX000000000%d", n),
+					UUID:         fmt.Sprintf("0123456789abcdef800000005e0053b%d", n),
+				}
+			}
+
+			guidOf := func(devices map[string]resourceapi.Device, name string) *string {
+				return devices[name].Attributes[portGUID].StringValue
+			}
+
+			twoVFs := []host.VFInfo{
+				{PciAddress: "0000:19:00.1", VFID: 0, DeviceID: "101e"},
+				{PciAddress: "0000:19:00.2", VFID: 1, DeviceID: "101e"},
+			}
+
+			Context("of a PF", func() {
+				It("should publish the kernel's GUID and leave the VPD alone", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(kernelGUID)))
+				})
+
+				It("should publish the VPD GUID of a Mellanox PF the kernel knows none for", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3"})
+					gomock.InOrder(
+						mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver),
+						mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil),
+					)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					pf := devices["0000-19-00-0"]
+					Expect(pf.Attributes[portGUID].StringValue).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(pf.Attributes[consts.AttributeLinkType].StringValue).To(Equal(ptr.To(consts.LinkTypeInfiniband)))
+				})
+
+				It("should match the vendor ID in either case", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15B3"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+				})
+
+				It("should leave portGUID out when no source knows the GUID", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(host.VPDPortGUID{}, fmt.Errorf("VPD has no V3 field"))
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					pf := devices["0000-19-00-0"]
+					Expect(pf.Attributes).NotTo(HaveKey(portGUID))
+					Expect(pf.Attributes[consts.AttributeDeviceType].StringValue).To(Equal(ptr.To(consts.DeviceTypePF)))
+				})
+
+				It("should not read the VPD of another vendor's PF", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "8086"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should leave out a GUID a source reports empty", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "8086", name: "ib0"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should take no GUID from the VPD of a PF the kernel shows more than one port for", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errMultiPort)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+			})
+
+			Context("from the VPDs of several PFs", func() {
+				vfioPFs := []ibPF{
+					{addr: pfAddr, vendor: "15b3"},
+					{addr: pfAddr2, vendor: "15b3"},
+					{addr: pfAddr3, vendor: "15b3"},
+				}
+				expectNoKernelGUIDs := func() {
+					for _, pf := range vfioPFs {
+						mockHost.EXPECT().GetIBPortGUID(pf.addr).Return("", errNoDriver)
+					}
+				}
+				expectNone := func(devices map[string]resourceapi.Device) {
+					for _, name := range []string{"0000-19-00-0", "0000-1a-00-0", "0000-1b-00-0"} {
+						Expect(devices[name].Attributes).NotTo(HaveKey(portGUID), name)
+					}
+				}
+
+				It("should publish every GUID when all PFs yield one of their own", func() {
+					expectPFs(vfioPFs...)
+					expectNoKernelGUIDs()
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(vpd(2), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr3).Return(vpd(3), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(guidOf(devices, "0000-1a-00-0")).To(Equal(ptr.To(vpd(2).GUID)))
+					Expect(guidOf(devices, "0000-1b-00-0")).To(Equal(ptr.To(vpd(3).GUID)))
+				})
+
+				It("should publish none while one PF yields none, and all once every PF yields one", func() {
+					// The endpoint that failed may carry the VPD of one that
+					// did not.
+					expectPFs(vfioPFs...)
+					expectNoKernelGUIDs()
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(host.VPDPortGUID{}, fmt.Errorf("input/output error"))
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr3).Return(vpd(3), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices).To(HaveLen(3))
+					expectNone(devices)
+
+					expectPFs(vfioPFs...)
+					expectNoKernelGUIDs()
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(vpd(2), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr3).Return(vpd(3), nil)
+
+					devices, err = DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(guidOf(devices, "0000-1a-00-0")).To(Equal(ptr.To(vpd(2).GUID)))
+					Expect(guidOf(devices, "0000-1b-00-0")).To(Equal(ptr.To(vpd(3).GUID)))
+				})
+
+				DescribeTable("should publish none when two PFs carry the VPD of one adapter",
+					func(second host.VPDPortGUID) {
+						expectPFs(vfioPFs...)
+						expectNoKernelGUIDs()
+						mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+						mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(second, nil)
+						mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr3).Return(vpd(3), nil)
+
+						devices, err := DiscoverSriovDevices()
+						Expect(err).NotTo(HaveOccurred())
+						expectNone(devices)
+					},
+					Entry("the same VPD", vpd(1)),
+					Entry("the same serial number",
+						host.VPDPortGUID{GUID: vpd(2).GUID, SerialNumber: vpd(1).SerialNumber, UUID: vpd(2).UUID}),
+					Entry("the same UUID",
+						host.VPDPortGUID{GUID: vpd(1).GUID, SerialNumber: vpd(2).SerialNumber, UUID: vpd(1).UUID}),
+					Entry("the same GUID from different UUIDs",
+						host.VPDPortGUID{GUID: vpd(1).GUID, SerialNumber: vpd(2).SerialNumber, UUID: vpd(2).UUID}),
+				)
+
+				It("should not take VPDs without a serial number for the VPD of one adapter", func() {
+					expectPFs(vfioPFs[:2]...)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr2).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(host.VPDPortGUID{GUID: vpd(1).GUID, UUID: vpd(1).UUID}, nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(host.VPDPortGUID{GUID: vpd(2).GUID, UUID: vpd(2).UUID}, nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(guidOf(devices, "0000-1a-00-0")).To(Equal(ptr.To(vpd(2).GUID)))
+				})
+
+				It("should leave a PF the rule does not apply to out of the count", func() {
+					expectPFs(vfioPFs[:2]...)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr2).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(host.VPDPortGUID{}, errNotApplicable)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(devices["0000-1a-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should read the VPD of a PF with a kernel GUID too, and publish the others' when it agrees", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0"}, ibPF{addr: pfAddr2, vendor: "15b3"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(vpd(1).GUID, nil)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr2).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(vpd(2), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(guidOf(devices, "0000-1a-00-0")).To(Equal(ptr.To(vpd(2).GUID)))
+				})
+
+				It("should publish none from a VPD when a PF's kernel GUID is not the one its VPD yields, and keep the kernel GUID", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0"}, ibPF{addr: pfAddr2, vendor: "15b3"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr2).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(vpd(2), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(kernelGUID)))
+					Expect(devices["0000-1a-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should publish none from a VPD when a PF with a kernel GUID yields none, and keep the kernel GUID", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0"}, ibPF{addr: pfAddr2, vendor: "15b3"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr2).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(host.VPDPortGUID{}, fmt.Errorf("VPD checksum fails"))
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(vpd(2), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(kernelGUID)))
+					Expect(devices["0000-1a-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should publish none from a VPD that yields the kernel GUID of another PF", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "8086", name: "ib0"}, ibPF{addr: pfAddr2, vendor: "15b3"})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(vpd(2).GUID, nil)
+					mockHost.EXPECT().GetIBPortGUID(pfAddr2).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr2).Return(vpd(2), nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(2).GUID)))
+					Expect(devices["0000-1a-00-0"].Attributes).NotTo(HaveKey(portGUID))
+				})
+			})
+
+			Context("of a VF", func() {
+				It("should publish the kernel's GUID and not ask the PF", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("00005e03000053d1", nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("00005e03000053d2", nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(kernelGUID)))
+					Expect(guidOf(devices, "0000-19-00-1")).To(Equal(ptr.To("00005e03000053d1")))
+					Expect(guidOf(devices, "0000-19-00-2")).To(Equal(ptr.To("00005e03000053d2")))
+				})
+
+				It("should publish the GUID set through the PF for a VF the kernel knows none for", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("00005e03000053d2", nil)
+					// VF 1 has a GUID of its own from the kernel, which wins.
+					mockHost.EXPECT().GetVFIBPortGUIDs(pfAddr, "ib0").Return(map[int]string{0: adminGUID, 1: "00005e03000053ff"}, nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-1")).To(Equal(ptr.To(adminGUID)))
+					Expect(guidOf(devices, "0000-19-00-2")).To(Equal(ptr.To("00005e03000053d2")))
+				})
+
+				It("should ask the PF once and leave portGUID out of the VFs it has no GUID for", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("", errNoDriver)
+					mockHost.EXPECT().GetVFIBPortGUIDs(pfAddr, "ib0").Return(map[int]string{1: adminGUID}, nil).Times(1)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-1"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(guidOf(devices, "0000-19-00-2")).To(Equal(ptr.To(adminGUID)))
+				})
+
+				It("should leave portGUID out when the PF is not known to have a single port", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("", errNoDriver)
+					mockHost.EXPECT().GetVFIBPortGUIDs(pfAddr, "ib0").
+						Return(nil, fmt.Errorf("PF is not known to have a single port: no RDMA device")).Times(1)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices).To(HaveLen(3))
+					Expect(devices["0000-19-00-1"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(devices["0000-19-00-2"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should not give a VF the kernel shows more than one port for the GUID set through the PF", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errMultiPort)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("", errNoDriver)
+					mockHost.EXPECT().GetVFIBPortGUIDs(pfAddr, "ib0").Return(map[int]string{0: "00005e03000053ff", 1: adminGUID}, nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-1"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(guidOf(devices, "0000-19-00-2")).To(Equal(ptr.To(adminGUID)))
+				})
+
+				It("should not ask the PF for VFs the kernel shows more than one port for", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return(kernelGUID, nil)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errMultiPort)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("", errMultiPort)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-1"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(devices["0000-19-00-2"].Attributes).NotTo(HaveKey(portGUID))
+				})
+
+				It("should not ask a PF the kernel shows more than one port for", func() {
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", name: "ib0", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errMultiPort)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("00005e03000053d2", nil)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(devices["0000-19-00-0"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(devices["0000-19-00-1"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(guidOf(devices, "0000-19-00-2")).To(Equal(ptr.To("00005e03000053d2")))
+				})
+
+				It("should never give a VF the GUID of its PF's VPD", func() {
+					// A PF without a netdev cannot be asked for its VFs' GUIDs.
+					expectPFs(ibPF{addr: pfAddr, vendor: "15b3", vfs: twoVFs})
+					mockHost.EXPECT().GetIBPortGUID(pfAddr).Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUIDFromVPD(pfAddr).Return(vpd(1), nil).Times(1)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.1").Return("", errNoDriver)
+					mockHost.EXPECT().GetIBPortGUID("0000:19:00.2").Return("", errNoDriver)
+
+					devices, err := DiscoverSriovDevices()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(guidOf(devices, "0000-19-00-0")).To(Equal(ptr.To(vpd(1).GUID)))
+					Expect(devices["0000-19-00-1"].Attributes).NotTo(HaveKey(portGUID))
+					Expect(devices["0000-19-00-2"].Attributes).NotTo(HaveKey(portGUID))
+				})
+			})
 		})
 
 		Context("RDMA Capability", func() {
@@ -610,6 +1039,9 @@ var _ = Describe("DiscoverSriovDevices", func() {
 				mockHost.EXPECT().GetNumaNode("0000:01:00.0").Return("1", nil)
 				mockHost.EXPECT().GetPCIeRoot("0000:01:00.0").Return("pci0000:00", nil)
 				mockHost.EXPECT().GetLinkType("0000:01:00.0").Return(consts.LinkTypeInfiniband, nil)
+				mockHost.EXPECT().GetIBPortGUID(gomock.Any()).Return("", fmt.Errorf("no port GUID")).AnyTimes()
+				mockHost.EXPECT().GetIBPortGUIDFromVPD("0000:01:00.0").Return(host.VPDPortGUID{}, fmt.Errorf("no VPD")).AnyTimes()
+				mockHost.EXPECT().GetVFIBPortGUIDs("0000:01:00.0", "ib0").Return(nil, fmt.Errorf("not supported")).AnyTimes()
 				mockHost.EXPECT().VerifyRDMACapability("0000:01:00.0").Return(false) // PF entry
 			})
 
@@ -791,6 +1223,8 @@ var _ = Describe("DiscoverSriovDevices", func() {
 			// No netdev, no MTU or link speed to read (and neither helper is called).
 			Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfMTU)))
 			Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePfLinkSpeedMbps)))
+			// Not known to be InfiniBand, so no port GUID is looked up, the VPD included.
+			Expect(pf.Attributes).NotTo(HaveKey(resourceapi.QualifiedName(consts.AttributePortGUID)))
 		})
 
 		It("should skip devices with invalid class ID", func() {
